@@ -7,6 +7,7 @@ import {
   HandCoins, 
   BarChart3, 
   FileSpreadsheet,
+  Scale,
   Headphones
 } from 'lucide-react';
 
@@ -18,6 +19,7 @@ export default function Sidebar({ activeTab, setActiveTab, onOpenContact }) {
     { id: 'accounts', labelBn: 'অ্যাকাউন্ট ও ওয়ালেট', labelEn: 'Accounts & Wallets', icon: Wallet },
     { id: 'projects', labelBn: 'প্রজেক্ট লেজার', labelEn: 'Projects Ledger', icon: Briefcase },
     { id: 'debts', labelBn: 'দেনা-পাওনা ট্র্যাকার', labelEn: 'Debts & Lending', icon: HandCoins },
+    { id: 'reconcile', labelBn: 'ট্যাক্স ও কমপ্লায়েন্স', labelEn: 'Tax & Compliance', icon: Scale },
     { id: 'analytics', labelBn: 'অ্যানালিটিক্স', labelEn: 'Analytics', icon: BarChart3 },
     { id: 'statements', labelBn: 'অডিট স্টেটমেন্ট', labelEn: 'Statements & Audit', icon: FileSpreadsheet },
   ];

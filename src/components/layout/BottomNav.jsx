@@ -32,11 +32,11 @@ export default function BottomNav({ activeTab, setActiveTab }) {
               onClick={() => setActiveTab(item.id)}
               className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition ${
                 isActive
-                  ? 'text-indigo-600 font-bold'
+                  ? 'text-rose-700 font-bold'
                   : 'text-slate-400 hover:text-slate-600'
               }`}
             >
-              <div className={`p-1 rounded-xl transition ${isActive ? 'bg-indigo-50' : ''}`}>
+              <div className={`p-1 rounded-xl transition ${isActive ? 'bg-rose-50' : ''}`}>
                 <Icon className="w-5 h-5" />
               </div>
               <span className="text-[10px] tracking-tight mt-0.5 max-w-[60px] truncate">

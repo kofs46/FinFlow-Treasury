@@ -134,7 +134,7 @@ export default function ProfileModal({ isOpen, onClose }) {
       onClick={onClose}
     >
       <div 
-        className="w-full max-w-md rounded-3xl bg-white border border-[#F3D7D9] p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150"
+        className="w-full max-w-md rounded-3xl bg-white border border-[#E2E8F0] p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close Button */}
@@ -224,7 +224,7 @@ export default function ProfileModal({ isOpen, onClose }) {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="e.g. Omar Faruk"
-                className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-[#E2E8F0] rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
               />
             </div>
           </div>
@@ -255,7 +255,7 @@ export default function ProfileModal({ isOpen, onClose }) {
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="+880 1XXXXXXXXX"
-                className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-[#E2E8F0] rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#E11D48]"
               />
             </div>
           </div>
@@ -271,7 +271,7 @@ export default function ProfileModal({ isOpen, onClose }) {
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="e.g. Dhaka, Bangladesh"
-                className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-[#E2E8F0] rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#E11D48]"
               />
             </div>
           </div>

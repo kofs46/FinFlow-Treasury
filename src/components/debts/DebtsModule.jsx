@@ -5,17 +5,15 @@ import { useLang } from '../../context/LangContext';
 import { formatBDT } from '../../utils/currency';
 import { 
   HandCoins, 
-  ArrowDownLeft, 
-  ArrowUpRight, 
-  Calendar, 
+  Plus, 
   Phone, 
-  AlertTriangle, 
-  CheckCircle2, 
-  Clock, 
-  DollarSign, 
-  X, 
-  Loader2,
-  Filter
+  Calendar, 
+  ArrowUpRight, 
+  ArrowDownLeft, 
+  History, 
+  X,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 
 export default function DebtsModule({ onDataChange }) {
@@ -23,431 +21,388 @@ export default function DebtsModule({ onDataChange }) {
   const { lang } = useLang();
 
   const [debts, setDebts] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [accounts, setAccounts] = useState([]);
-  const [loading, setLoading] = useState(true);
 
-  // Filter state: 'all' | 'receivable' | 'payable' | 'overdue'
-  const [activeFilter, setActiveFilter] = useState('all');
+  // Modals
+  const [isAddDebtOpen, setIsAddDebtOpen] = useState(false);
+  const [contactName, setContactName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [debtType, setDebtType] = useState('receivable');
+  const [originalAmount, setOriginalAmount] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [debtAccountId, setDebtAccountId] = useState('');
 
-  // Repayment Modal State
-  const [selectedDebt, setSelectedDebt] = useState(null);
-  const [repayAmount, setRepayAmount] = useState('');
-  const [repayAccountId, setRepayAccountId] = useState('');
-  const [repayNote, setRepayNote] = useState('');
-  const [submittingRepay, setSubmittingRepay] = useState(false);
-  const [repayError, setRepayError] = useState('');
+  // Settle Modal
+  const [settleDebt, setSettleDebt] = useState(null);
+  const [settleAmount, setSettleAmount] = useState('');
+  const [settleAccountId, setSettleAccountId] = useState('');
+
+  // Contact Full Statement Modal
+  const [statementContact, setStatementContact] = useState(null);
 
   useEffect(() => {
-    if (user) loadDebtsData();
+    if (user) loadData();
   }, [user]);
 
-  const loadDebtsData = async () => {
-    setLoading(true);
+  const loadData = async () => {
     try {
-      const { data: dData } = await supabase
-        .from('debts')
-        .select(`
-          *,
-          accounts:account_id (account_name),
-          projects:project_id (name)
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+      const { data: dData } = await supabase.from('debts').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
       if (dData) setDebts(dData);
 
-      const { data: aData } = await supabase
-        .from('accounts')
-        .select('*')
-        .eq('user_id', user.id);
-      if (aData) setAccounts(aData);
+      const { data: pData } = await supabase.from('debt_payments').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+      if (pData) setPayments(pData);
+
+      const { data: aData } = await supabase.from('accounts').select('*').eq('user_id', user.id);
+      if (aData) {
+        setAccounts(aData);
+        if (aData.length > 0) {
+          if (!debtAccountId) setDebtAccountId(aData[0].id);
+          if (!settleAccountId) setSettleAccountId(aData[0].id);
+        }
+      }
     } catch (err) {
       console.error('Error fetching debts:', err);
-    } finally {
-      setLoading(false);
     }
   };
 
-  // Overdue Helper
-  const getOverdueStatus = (dueDate, status) => {
-    if (status === 'settled') return { isOverdue: false, days: 0, text: 'Settled', color: 'slate' };
-    if (!dueDate) return { isOverdue: false, days: 0, text: 'No Due Date', color: 'slate' };
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const due = new Date(dueDate);
-    due.setHours(0, 0, 0, 0);
-
-    const diffTime = today - due;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays > 0) {
-      return { 
-        isOverdue: true, 
-        days: diffDays, 
-        text: `${diffDays} ${lang === 'bn' ? 'দিন অতিক্রান্ত' : 'Days Overdue'}`, 
-        color: 'rose' 
-      };
-    } else if (diffDays === 0) {
-      return { 
-        isOverdue: true, 
-        days: 0, 
-        text: lang === 'bn' ? 'আজই পরিশোধের শেষ দিন' : 'Due Today', 
-        color: 'amber' 
-      };
-    } else {
-      const remainingDays = Math.abs(diffDays);
-      return { 
-        isOverdue: false, 
-        days: remainingDays, 
-        text: `${remainingDays} ${lang === 'bn' ? 'দিন বাকি' : 'Days Left'}`, 
-        color: 'emerald' 
-      };
-    }
-  };
-
-  // Filter List
-  const filteredDebts = debts.filter((d) => {
-    if (activeFilter === 'receivable') return d.debt_type === 'receivable';
-    if (activeFilter === 'payable') return d.debt_type === 'payable';
-    if (activeFilter === 'overdue') {
-      const { isOverdue } = getOverdueStatus(d.due_date, d.status);
-      return isOverdue && d.status !== 'settled';
-    }
-    return true;
-  });
-
-  const totalReceivable = debts
-    .filter((d) => d.debt_type === 'receivable' && d.status !== 'settled')
-    .reduce((sum, d) => sum + Number(d.remaining_amount), 0);
-
-  const totalPayable = debts
-    .filter((d) => d.debt_type === 'payable' && d.status !== 'settled')
-    .reduce((sum, d) => sum + Number(d.remaining_amount), 0);
-
-  const overdueCount = debts.filter((d) => {
-    const { isOverdue } = getOverdueStatus(d.due_date, d.status);
-    return isOverdue && d.status !== 'settled';
-  }).length;
-
-  const handleRepaySubmit = async (e) => {
+  const handleSaveDebt = async (e) => {
     e.preventDefault();
-    if (!selectedDebt || !repayAccountId || !repayAmount) return;
-
-    setSubmittingRepay(true);
-    setRepayError('');
+    if (!contactName || !phone || !originalAmount || !debtAccountId) return;
 
     try {
+      const amt = parseFloat(originalAmount);
+
+      // Create Debt
+      await supabase.from('debts').insert([{
+        user_id: user.id,
+        contact_name: contactName,
+        phone: phone,
+        debt_type: debtType,
+        original_amount: amt,
+        remaining_amount: amt,
+        account_id: debtAccountId,
+        due_date: dueDate || null,
+        status: 'pending'
+      }]);
+
+      setIsAddDebtOpen(false);
+      setContactName('');
+      setPhone('');
+      setOriginalAmount('');
+      loadData();
+      if (onDataChange) onDataChange();
+    } catch (err) {
+      console.error('Error saving debt:', err);
+    }
+  };
+
+  const handleSettlePayment = async (e) => {
+    e.preventDefault();
+    if (!settleDebt || !settleAmount || !settleAccountId) return;
+
+    try {
+      const amt = parseFloat(settleAmount);
+
+      // Call Stored Procedure
       const { error } = await supabase.rpc('make_debt_payment', {
-        p_debt_id: selectedDebt.id,
-        p_account_id: repayAccountId,
-        p_amount: Number(repayAmount),
-        p_note: repayNote
+        p_debt_id: settleDebt.id,
+        p_account_id: settleAccountId,
+        p_amount: amt,
+        p_note: `Settlement for ${settleDebt.contact_name}`
       });
 
       if (error) throw error;
 
-      setSelectedDebt(null);
-      setRepayAmount('');
-      setRepayNote('');
-      loadDebtsData();
+      setSettleDebt(null);
+      setSettleAmount('');
+      loadData();
       if (onDataChange) onDataChange();
     } catch (err) {
-      setRepayError(err.message || 'Payment execution failed.');
-    } finally {
-      setSubmittingRepay(false);
+      alert(err.message || 'Payment failed.');
     }
   };
 
   return (
     <div className="space-y-6">
       
-      {/* Top Liquidity Status Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        
-        {/* Receivables Card */}
-        <div className="p-5 rounded-3xl bg-white border border-[#F3D7D9] shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-black uppercase text-emerald-600 tracking-wider">
-              {lang === 'bn' ? 'মোট পাওনা (Receivable)' : 'Total Receivable'}
-            </span>
-            <p className="text-xl font-black font-mono text-slate-900 mt-1">
-              +{formatBDT(totalReceivable, lang)}
-            </p>
-            <span className="text-[10px] text-slate-400 font-bold">Incoming liquidity</span>
-          </div>
-          <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-            <ArrowDownLeft className="w-5 h-5" />
-          </div>
+      {/* Header */}
+      <div className="bg-white border border-[#F3D7D9] rounded-3xl p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <span className="text-[10px] font-black uppercase tracking-wider text-[#E11D48] px-2.5 py-0.5 rounded-full bg-rose-50 border border-rose-200">
+            Lending & Receivables
+          </span>
+          <h3 className="text-xl font-black text-slate-900 mt-1">
+            {lang === 'bn' ? 'দেনা ও পাওনা ট্র্যাকার' : 'Debts & Lending Ledger'}
+          </h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {lang === 'bn' ? 'ইউনিক ফোন নম্বর দিয়ে দেনা-পাওনার হিসাব এবং সম্পূর্ণ লেনদেন হিস্ট্রি' : 'Unique phone indexed lending ledger with repayment logs'}
+          </p>
         </div>
 
-        {/* Payables Card */}
-        <div className="p-5 rounded-3xl bg-white border border-[#F3D7D9] shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-black uppercase text-[#E11D48] tracking-wider">
-              {lang === 'bn' ? 'মোট দেনা (Payable)' : 'Total Payable'}
-            </span>
-            <p className="text-xl font-black font-mono text-[#E11D48] mt-1">
-              -{formatBDT(totalPayable, lang)}
-            </p>
-            <span className="text-[10px] text-slate-400 font-bold">Obligations to settle</span>
-          </div>
-          <div className="w-10 h-10 rounded-2xl bg-rose-50 text-[#E11D48] flex items-center justify-center font-bold">
-            <ArrowUpRight className="w-5 h-5" />
-          </div>
-        </div>
-
-        {/* Overdue Alert Bucket */}
-        <div className={`p-5 rounded-3xl border shadow-xs flex items-center justify-between transition ${
-          overdueCount > 0 ? 'bg-rose-50/70 border-rose-200' : 'bg-white border-[#F3D7D9]'
-        }`}>
-          <div>
-            <span className="text-[10px] font-black uppercase tracking-wider text-rose-700 flex items-center gap-1">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span>{lang === 'bn' ? 'মেয়াদোত্তীর্ণ ঋণ (Overdue)' : 'Overdue Debts'}</span>
-            </span>
-            <p className="text-xl font-black font-mono text-[#E11D48] mt-1">
-              {overdueCount} {lang === 'bn' ? 'টি ঋণ' : 'Records'}
-            </p>
-            <span className="text-[10px] text-rose-500 font-bold">Requires immediate action</span>
-          </div>
-          <div className="w-10 h-10 rounded-2xl bg-rose-100 text-[#E11D48] flex items-center justify-center font-bold">
-            <Clock className="w-5 h-5" />
-          </div>
-        </div>
-      </div>
-
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-2 border-b border-[#F3D7D9] pb-3 overflow-x-auto scrollbar-none">
         <button
-          onClick={() => setActiveFilter('all')}
-          className={`py-1.5 px-3 rounded-xl text-xs font-bold transition cursor-pointer ${
-            activeFilter === 'all' ? 'bg-[#E11D48] text-white shadow-sm' : 'text-slate-600 hover:bg-rose-50'
-          }`}
+          type="button"
+          onClick={() => setIsAddDebtOpen(true)}
+          className="py-2.5 px-4 bg-[#E11D48] hover:bg-[#BE123C] text-white rounded-xl text-xs font-bold shadow-md shadow-rose-500/20 transition flex items-center gap-1.5 cursor-pointer"
         >
-          {lang === 'bn' ? 'সব দেনা-পাওনা' : 'All Debts'} ({debts.length})
-        </button>
-
-        <button
-          onClick={() => setActiveFilter('receivable')}
-          className={`py-1.5 px-3 rounded-xl text-xs font-bold transition cursor-pointer ${
-            activeFilter === 'receivable' ? 'bg-[#E11D48] text-white shadow-sm' : 'text-slate-600 hover:bg-rose-50'
-          }`}
-        >
-          {lang === 'bn' ? 'শুধু পাওনা' : 'Receivables'}
-        </button>
-
-        <button
-          onClick={() => setActiveFilter('payable')}
-          className={`py-1.5 px-3 rounded-xl text-xs font-bold transition cursor-pointer ${
-            activeFilter === 'payable' ? 'bg-[#E11D48] text-white shadow-sm' : 'text-slate-600 hover:bg-rose-50'
-          }`}
-        >
-          {lang === 'bn' ? 'শুধু দেনা' : 'Payables'}
-        </button>
-
-        <button
-          onClick={() => setActiveFilter('overdue')}
-          className={`py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-            activeFilter === 'overdue' ? 'bg-[#E11D48] text-white shadow-sm' : 'text-rose-600 hover:bg-rose-50'
-          }`}
-        >
-          <AlertTriangle className="w-3.5 h-3.5" />
-          <span>{lang === 'bn' ? 'মেয়াদোত্তীর্ণ ঋণ' : 'Overdue Only'}</span>
-          {overdueCount > 0 && (
-            <span className="w-4 h-4 rounded-full bg-white text-[#E11D48] text-[10px] font-black flex items-center justify-center">
-              {overdueCount}
-            </span>
-          )}
+          <Plus className="w-4 h-4" />
+          <span>{lang === 'bn' ? 'নতুন দেনা / পাওনা যুক্ত করুন' : '+ Record Debt / Loan'}</span>
         </button>
       </div>
 
-      {/* Debts Card Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredDebts.length === 0 ? (
-          <div className="col-span-2 py-12 text-center text-slate-400 text-xs font-bold bg-white rounded-3xl border border-[#F3D7D9]">
-            No matching debt records found.
-          </div>
-        ) : (
-          filteredDebts.map((item) => {
-            const isReceivable = item.debt_type === 'receivable';
-            const { isOverdue, text: dueText, color: dueColor } = getOverdueStatus(item.due_date, item.status);
-            const isSettled = item.status === 'settled';
-
-            return (
-              <div 
-                key={item.id} 
-                className={`p-5 rounded-3xl bg-white border transition shadow-xs flex flex-col justify-between ${
-                  isOverdue ? 'border-rose-300 ring-2 ring-rose-50' : 'border-[#F3D7D9]'
-                }`}
-              >
-                <div>
-                  {/* Top status bar with Overdue Warning Badge */}
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
-                        isReceivable ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-[#E11D48] border border-rose-200'
-                      }`}>
-                        {isReceivable ? 'Receivable (পাওনা)' : 'Payable (দেনা)'}
-                      </span>
-                      <span className="text-[10px] font-black uppercase text-slate-400">
-                        {item.status}
-                      </span>
-                    </div>
-
-                    {/* DYNAMIC OVERDUE BADGE */}
-                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
-                      dueColor === 'rose'
-                        ? 'bg-rose-100 text-rose-800 border-rose-300 animate-pulse'
-                        : dueColor === 'amber'
-                        ? 'bg-amber-100 text-amber-800 border-amber-300'
-                        : dueColor === 'emerald'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-slate-100 text-slate-600 border-slate-200'
-                    }`}>
-                      {isOverdue && <AlertTriangle className="w-3 h-3" />}
-                      <span>{dueText}</span>
-                    </span>
-                  </div>
-
-                  {/* Contact Identifier & Meta */}
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h4 className="text-base font-black text-slate-900">{item.contact_name}</h4>
-                      <p className="text-xs text-slate-500 font-mono flex items-center gap-1.5 mt-0.5">
-                        <Phone className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{item.phone}</span>
-                      </p>
-                    </div>
-
-                    <div className="text-right">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase">Remaining</span>
-                      <p className="text-lg font-black font-mono text-slate-900">
-                        {formatBDT(item.remaining_amount, lang)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Notes & Linked Project */}
-                  <div className="mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-500 space-y-1">
-                    <div className="flex justify-between">
-                      <span>Original Loan:</span>
-                      <strong className="font-mono text-slate-800">{formatBDT(item.original_amount, lang)}</strong>
-                    </div>
-                    {item.due_date && (
-                      <div className="flex justify-between">
-                        <span>Due Date:</span>
-                        <strong className="font-mono text-slate-800">{item.due_date}</strong>
-                      </div>
-                    )}
-                    {item.notes && (
-                      <p className="text-slate-600 italic mt-1 bg-slate-50 p-2 rounded-xl">
-                        "{item.notes}"
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Settle Action Button */}
-                {!isSettled && (
+      {/* Debts Table */}
+      <div className="bg-white border border-[#F3D7D9] rounded-3xl p-6 shadow-xs overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead>
+            <tr className="border-b text-slate-400 font-bold uppercase text-[10px]">
+              <th className="py-2.5 px-3">Contact Person</th>
+              <th className="py-2.5 px-3">Phone (Unique ID)</th>
+              <th className="py-2.5 px-3">Type</th>
+              <th className="py-2.5 px-3">Remaining</th>
+              <th className="py-2.5 px-3">Due Date</th>
+              <th className="py-2.5 px-3">Status</th>
+              <th className="py-2.5 px-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 font-medium">
+            {debts.map((d) => (
+              <tr key={d.id} className="hover:bg-slate-50/50">
+                <td className="py-3 px-3 font-bold text-slate-900">
                   <button
-                    onClick={() => {
-                      setSelectedDebt(item);
-                      setRepayAmount(item.remaining_amount);
-                      setRepayError('');
-                    }}
-                    className="w-full mt-4 py-2.5 bg-[#E11D48] hover:bg-[#BE123C] text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                    type="button"
+                    onClick={() => setStatementContact(d)}
+                    className="hover:text-[#E11D48] underline flex items-center gap-1 cursor-pointer"
+                    title="Click to view full loan history"
                   >
-                    <DollarSign className="w-3.5 h-3.5" />
-                    <span>{isReceivable ? 'Record Payment Received' : 'Pay Debt'}</span>
+                    <span>{d.contact_name}</span>
+                    <History className="w-3 h-3 text-slate-400" />
                   </button>
-                )}
-              </div>
-            );
-          })
-        )}
+                </td>
+                <td className="py-3 px-3 font-mono text-slate-600">{d.phone}</td>
+                <td className="py-3 px-3">
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                    d.debt_type === 'receivable' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-[#E11D48]'
+                  }`}>
+                    {d.debt_type === 'receivable' ? 'Pawnar (পাওনা)' : 'Denar (দেনা)'}
+                  </span>
+                </td>
+                <td className="py-3 px-3 font-mono font-bold text-slate-900">{formatBDT(d.remaining_amount, lang)}</td>
+                <td className="py-3 px-3 font-mono text-slate-500">{d.due_date || '—'}</td>
+                <td className="py-3 px-3">
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-slate-100 text-slate-700">
+                    {d.status}
+                  </span>
+                </td>
+                <td className="py-3 px-3 text-right">
+                  {d.status !== 'settled' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSettleDebt(d);
+                        setSettleAmount(d.remaining_amount);
+                      }}
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold cursor-pointer"
+                    >
+                      Settle / Pay
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {/* --- REPAYMENT MODAL --- */}
-      {selectedDebt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+      {/* RECORD DEBT MODAL */}
+      {isAddDebtOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
           <div className="w-full max-w-md bg-white border border-[#F3D7D9] rounded-3xl p-6 shadow-2xl relative">
             <button
-              onClick={() => setSelectedDebt(null)}
-              className="absolute right-5 top-5 p-1.5 rounded-full text-slate-400 hover:text-slate-700 cursor-pointer"
+              type="button"
+              onClick={() => setIsAddDebtOpen(false)}
+              className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-800"
             >
               <X className="w-5 h-5" />
             </button>
+            <h3 className="text-base font-black text-slate-900 mb-1">Record Debt or Loan</h3>
+            <p className="text-xs text-slate-500 mb-4">Track lending and borrowing against contacts.</p>
 
-            <h3 className="text-base font-black text-slate-950 mb-1">
-              {selectedDebt.debt_type === 'receivable' ? 'Record Repayment' : 'Make Debt Payment'}
-            </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              Contact: <strong>{selectedDebt.contact_name}</strong> | Remaining: <strong>{formatBDT(selectedDebt.remaining_amount, lang)}</strong>
-            </p>
-
-            {repayError && (
-              <div className="mb-4 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-[#E11D48] text-xs font-bold">
-                {repayError}
-              </div>
-            )}
-
-            <form onSubmit={handleRepaySubmit} className="space-y-3.5">
+            <form onSubmit={handleSaveDebt} className="space-y-3.5">
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-                  Settlement Amount (৳)
-                </label>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Contact Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Asif Mahmud"
+                  value={contactName}
+                  onChange={(e) => setContactName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Phone Number (Unique)</label>
+                <input
+                  type="tel"
+                  required
+                  placeholder="+8801XXXXXXXXX"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-mono font-bold"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Type</label>
+                  <select
+                    value={debtType}
+                    onChange={(e) => setDebtType(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold"
+                  >
+                    <option value="receivable">Pawnar (Receivable / পাবো)</option>
+                    <option value="payable">Denar (Payable / দিবো)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Amount (৳ BDT)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    placeholder="0.00"
+                    value={originalAmount}
+                    onChange={(e) => setOriginalAmount(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-mono font-bold"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Due Date</label>
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddDebtOpen(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-[#E11D48] text-white text-xs font-bold rounded-xl shadow-md"
+                >
+                  Save Record
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SETTLE PAYMENT MODAL */}
+      {settleDebt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+          <div className="w-full max-w-md bg-white border border-[#F3D7D9] rounded-3xl p-6 shadow-2xl relative">
+            <button
+              type="button"
+              onClick={() => setSettleDebt(null)}
+              className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-800"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-base font-black text-slate-900 mb-1">Settle Debt Payment</h3>
+            <p className="text-xs text-slate-500 mb-4">{settleDebt.contact_name} ({settleDebt.phone})</p>
+
+            <form onSubmit={handleSettlePayment} className="space-y-3.5">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Payment Amount (৳)</label>
                 <input
                   type="number"
                   step="0.01"
                   required
-                  max={selectedDebt.remaining_amount}
-                  value={repayAmount}
-                  onChange={(e) => setRepayAmount(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                  value={settleAmount}
+                  onChange={(e) => setSettleAmount(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-mono font-bold"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-                  {selectedDebt.debt_type === 'receivable' ? 'Deposit Into Wallet' : 'Pay From Wallet'}
-                </label>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Select Wallet</label>
                 <select
-                  required
-                  value={repayAccountId}
-                  onChange={(e) => setRepayAccountId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                  value={settleAccountId}
+                  onChange={(e) => setSettleAccountId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold"
                 >
-                  <option value="">Select Account</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.account_name} ({formatBDT(a.balance, lang)})
-                    </option>
-                  ))}
+                  {accounts.map(a => <option key={a.id} value={a.id}>{a.account_name} ({formatBDT(a.balance, lang)})</option>)}
                 </select>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">Note / Particulars</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Partial repayment via bKash"
-                  value={repayNote}
-                  onChange={(e) => setRepayNote(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
-                />
-              </div>
-
-              <div className="pt-2">
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSettleDebt(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-500"
+                >
+                  Cancel
+                </button>
                 <button
                   type="submit"
-                  disabled={submittingRepay}
-                  className="w-full py-3 bg-[#E11D48] hover:bg-[#BE123C] text-white font-bold rounded-xl text-xs shadow-md shadow-rose-500/25 transition disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                  className="px-5 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-md"
                 >
-                  {submittingRepay && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>{submittingRepay ? 'Processing...' : 'Confirm Settlement'}</span>
+                  Confirm Payment
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* FULL STATEMENT & HISTORY MODAL FOR A CONTACT */}
+      {statementContact && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
+          <div className="w-full max-w-2xl bg-white border border-[#F3D7D9] rounded-3xl p-6 shadow-2xl relative flex flex-col max-h-[80vh]">
+            <button
+              type="button"
+              onClick={() => setStatementContact(null)}
+              className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-800"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-base font-black text-slate-900">{statementContact.contact_name}</h3>
+            <p className="text-xs text-slate-500 font-mono">Phone: {statementContact.phone}</p>
+
+            <div className="mt-4 pt-3 border-t border-slate-100 flex-1 overflow-y-auto space-y-2">
+              <div className="p-3 bg-slate-50 rounded-2xl flex justify-between text-xs font-bold">
+                <span>Original Loan Amount:</span>
+                <span className="font-mono">{formatBDT(statementContact.original_amount, lang)}</span>
+              </div>
+              <div className="p-3 bg-rose-50 text-[#E11D48] rounded-2xl flex justify-between text-xs font-bold">
+                <span>Remaining Balance:</span>
+                <span className="font-mono">{formatBDT(statementContact.remaining_amount, lang)}</span>
+              </div>
+
+              <h4 className="text-xs font-black uppercase text-slate-400 mt-4 mb-2">Repayment Logs</h4>
+              {payments.filter(p => p.debt_id === statementContact.id).length === 0 ? (
+                <p className="text-xs text-slate-400 italic">No repayments recorded yet.</p>
+              ) : (
+                payments.filter(p => p.debt_id === statementContact.id).map(p => (
+                  <div key={p.id} className="p-2.5 rounded-xl border border-slate-100 flex justify-between text-xs font-mono">
+                    <span>{p.created_at?.substring(0, 10)} - {p.note}</span>
+                    <span className="font-bold text-emerald-600">+{formatBDT(p.amount, lang)}</span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -185,7 +185,7 @@ export default function AnalyticsModule() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         
         {/* Runway Card */}
-        <div className="p-5 rounded-3xl bg-white border border-[#F3D7D9] shadow-xs flex flex-col justify-between">
+        <div className="p-5 rounded-3xl bg-white border border-[#E2E8F0] shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
               {lang === 'bn' ? 'ক্যাশ রানওয়ে (স্থায়িত্ব)' : 'Operational Cash Runway'}
@@ -206,7 +206,7 @@ export default function AnalyticsModule() {
         </div>
 
         {/* Average Monthly Burn */}
-        <div className="p-5 rounded-3xl bg-white border border-[#F3D7D9] shadow-xs flex flex-col justify-between">
+        <div className="p-5 rounded-3xl bg-white border border-[#E2E8F0] shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
               {lang === 'bn' ? 'মাসিক গড় খরচ (Burn Rate)' : 'Monthly Burn Velocity'}
@@ -252,7 +252,7 @@ export default function AnalyticsModule() {
       </div>
 
       {/* 90-Day Predictive Trajectory Simulation */}
-      <div className="bg-white border border-[#F3D7D9] rounded-3xl p-6 shadow-xs space-y-4">
+      <div className="bg-white border border-[#E2E8F0] rounded-3xl p-6 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-50 text-[#E11D48] text-[10px] font-black uppercase mb-1">
@@ -288,7 +288,7 @@ export default function AnalyticsModule() {
                 contentStyle={{ 
                   backgroundColor: '#ffffff', 
                   borderRadius: '1rem', 
-                  border: '1px solid #F3D7D9',
+                  border: '1px solid #E2E8F0',
                   boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05)'
                 }} 
               />
@@ -321,7 +321,7 @@ export default function AnalyticsModule() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         
         {/* Cost Concentration Pie Chart */}
-        <div className="p-6 rounded-3xl bg-white border border-[#F3D7D9] shadow-xs">
+        <div className="p-6 rounded-3xl bg-white border border-[#E2E8F0] shadow-xs">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xs font-black uppercase text-slate-600 tracking-wider flex items-center gap-2">
               <PieIcon className="w-4 h-4 text-[#E11D48]" />
@@ -355,7 +355,7 @@ export default function AnalyticsModule() {
                     contentStyle={{ 
                       backgroundColor: '#ffffff', 
                       borderRadius: '1rem', 
-                      border: '1px solid #F3D7D9' 
+                      border: '1px solid #E2E8F0' 
                     }} 
                   />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
@@ -366,7 +366,7 @@ export default function AnalyticsModule() {
         </div>
 
         {/* Capital Allocation Overview */}
-        <div className="p-6 rounded-3xl bg-white border border-[#F3D7D9] shadow-xs flex flex-col justify-between">
+        <div className="p-6 rounded-3xl bg-white border border-[#E2E8F0] shadow-xs flex flex-col justify-between">
           <div>
             <h3 className="text-xs font-black uppercase text-slate-600 tracking-wider mb-4 flex items-center gap-2">
               <Layers className="w-4 h-4 text-[#E11D48]" />
