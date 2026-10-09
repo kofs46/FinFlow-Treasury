@@ -6,11 +6,14 @@ import { formatBDT } from '../../utils/currency';
 import { BrandLogo } from '../common/BrandLogos';
 import { 
   Repeat, 
-  Briefcase, 
-  ChevronRight,
-  User,
-  Plus,
-  BarChart2
+  Plus, 
+  ChevronRight, 
+  TrendingUp, 
+  TrendingDown, 
+  Layers, 
+  Briefcase,
+  BarChart2,
+  Wallet
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -30,23 +33,22 @@ export default function OverviewCards({
   setActiveTab 
 }) {
   const { user, profile } = useAuth();
-  const { lang, toggleLang } = useLang();
+  const { lang } = useLang();
 
   const [accounts, setAccounts] = useState([]);
   const [projects, setProjects] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [debts, setDebts] = useState([]);
-  const [debtTab, setDebtTab] = useState('receivable');
 
   const currentMonthStr = new Date().toISOString().substring(0, 7);
   const [selectedMonth, setSelectedMonth] = useState(currentMonthStr);
   const [selectedProjectId, setSelectedProjectId] = useState('all');
 
   useEffect(() => {
-    if (user) loadAllDashboardData();
+    if (user) loadDashboardData();
   }, [user, refreshTrigger]);
 
-  const loadAllDashboardData = async () => {
+  const loadDashboardData = async () => {
     const { data: accData } = await supabase
       .from('accounts')
       .select('*')
@@ -121,75 +123,117 @@ export default function OverviewCards({
   const totalMonthInflow = histogramData.reduce((sum, w) => sum + w.Inflow, 0);
 
   return (
-    <div className="space-y-6 pb-6">
-      {/* ১. টপ ব্যানার - কালার থিমে সিঙ্ক ও প্রোপার প্যাডিং */}
-      <div className="rounded-3xl bg-[#F36259] text-white p-6 shadow-md border border-[#EED8C7]">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-full border-2 border-white/50 overflow-hidden bg-white/20 flex items-center justify-center flex-shrink-0">
-              {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
-              ) : (
-                <User className="w-6 h-6 text-white" />
-              )}
+    <div className="space-y-6">
+      
+      {/* 1. Balanced Executive Treasury Banner */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        
+        {/* Main Liquidity Card */}
+        <div className="lg:col-span-2 rounded-3xl bg-gradient-to-br from-[#E11D48] via-[#e11d48] to-[#be123c] p-6 text-white shadow-lg shadow-rose-900/10 flex flex-col justify-between relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none" />
+
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wider font-extrabold text-rose-100 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                {lang === 'bn' ? 'সর্বমোট তরল সম্পদ' : 'Total Net Liquidity'}
+              </span>
+              <span className="text-[11px] font-bold text-rose-200">
+                {accounts.length} {lang === 'bn' ? 'টি ওয়ালেট সক্রিয়' : 'Active Wallets'}
+              </span>
             </div>
-            <div>
-              <p className="text-xs text-white/80 font-medium">
-                {lang === 'bn' ? 'স্বাগতম,' : 'Welcome,'}
+
+            <div className="mt-3">
+              <h1 className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-white">
+                {formatBDT(totalLiquidity, lang)}
+              </h1>
+              <p className="text-[11px] text-rose-200 mt-1 font-medium">
+                {lang === 'bn' ? 'রিয়েল-টাইম ক্যাশ রিজার্ভ ও সমস্ত অ্যাকাউন্টের সম্মিলিত ব্যালেন্স' : 'Consolidated balance across banks, MFS, and cash vaults'}
               </p>
-              <h3 className="text-base font-bold text-white leading-tight">
-                {profile?.full_name || user?.email?.split('@')[0]}
-              </h3>
+            </div>
+          </div>
+
+          {/* Symmetrical Action Hub */}
+          <div className="grid grid-cols-2 gap-3 mt-6 pt-4 border-t border-white/15">
+            <button
+              onClick={onOpenTransfer}
+              className="py-2.5 px-4 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs flex items-center justify-center gap-2 transition active:scale-98 border border-white/20"
+            >
+              <Repeat className="w-3.5 h-3.5" />
+              <span>{lang === 'bn' ? 'ফান্ড স্থানান্তর' : 'Fund Transfer'}</span>
+            </button>
+            <button
+              onClick={onOpenAddAccount}
+              className="py-2.5 px-4 rounded-xl bg-white text-[#E11D48] hover:bg-rose-50 font-bold text-xs flex items-center justify-center gap-2 transition active:scale-98 shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5 text-[#E11D48]" />
+              <span>{lang === 'bn' ? 'নতুন ওয়ালেট' : 'Add Wallet'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Quick Audit Metrics Panel */}
+        <div className="rounded-3xl bg-white border border-[#F3D7D9] p-5 flex flex-col justify-between shadow-xs">
+          <div>
+            <h3 className="text-xs font-black uppercase text-slate-400 tracking-wider mb-3">
+              {lang === 'bn' ? 'চলতি মাসের নিরীক্ষা' : 'Monthly Summary'}
+            </h3>
+            
+            <div className="space-y-2.5">
+              <div className="p-3 rounded-2xl bg-rose-50/60 border border-rose-100 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    {lang === 'bn' ? 'মোট খরচ (Outflow)' : 'Total Outflow'}
+                  </span>
+                  <p className="text-sm font-black font-mono text-[#E11D48]">
+                    -{formatBDT(totalMonthOutflow, lang)}
+                  </p>
+                </div>
+                <div className="w-8 h-8 rounded-xl bg-rose-100 text-[#E11D48] flex items-center justify-center">
+                  <TrendingDown className="w-4 h-4" />
+                </div>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-emerald-50/60 border border-emerald-100 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    {lang === 'bn' ? 'মোট জমা (Inflow)' : 'Total Inflow'}
+                  </span>
+                  <p className="text-sm font-black font-mono text-emerald-600">
+                    +{formatBDT(totalMonthInflow, lang)}
+                  </p>
+                </div>
+                <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+              </div>
             </div>
           </div>
 
           <button
-            onClick={toggleLang}
-            className="px-3 py-1 rounded-xl bg-white/20 hover:bg-white/30 text-xs font-bold text-white border border-white/30 transition"
+            onClick={() => setActiveTab('analytics')}
+            className="w-full mt-3 py-2 text-center text-xs font-bold text-[#E11D48] hover:bg-rose-50 rounded-xl transition flex items-center justify-center gap-1"
           >
-            {lang === 'bn' ? 'BN | EN' : 'EN | বাং'}
-          </button>
-        </div>
-
-        <div className="text-center py-2">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-white text-[11px] font-bold mb-2">
-            <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-            <span>{lang === 'bn' ? 'সর্বমোট তরল সম্পদ' : 'Total Net Liquidity'}</span>
-          </div>
-          <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight font-mono">
-            {formatBDT(totalLiquidity, lang)}
-          </h2>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 mt-5">
-          <button
-            onClick={onOpenTransfer}
-            className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-bold text-xs border border-white/30 transition active:scale-95"
-          >
-            <Repeat className="w-4 h-4" />
-            <span>{lang === 'bn' ? 'ফান্ড স্থানান্তর' : 'Fund Transfer'}</span>
-          </button>
-          <button
-            onClick={onOpenAddAccount}
-            className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-2xl bg-white text-[#F36259] font-bold text-xs shadow-md transition active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>{lang === 'bn' ? 'নতুন অ্যাকাউন্ট' : 'Add Account'}</span>
+            <span>{lang === 'bn' ? 'বিস্তারিত অ্যানালিটিক্স দেখুন' : 'View Deep Analytics'}</span>
+            <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {/* ২. ওয়ালেট রো */}
+      {/* 2. Horizontal Account Vaults */}
       <div>
         <div className="flex items-center justify-between mb-3 px-1">
-          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-            {lang === 'bn' ? 'অ্যাকাউন্ট ও ওয়ালেট' : 'Accounts & Wallets'}
-          </h3>
+          <div className="flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-[#E11D48]" />
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              {lang === 'bn' ? 'অ্যাকাউন্ট ও ওয়ালেট' : 'Accounts & Wallets'}
+            </h3>
+          </div>
           <button 
-            onClick={() => setActiveTab && setActiveTab('accounts')}
-            className="text-[11px] font-bold text-[#F36259] hover:underline flex items-center"
+            onClick={() => setActiveTab('accounts')}
+            className="text-[11px] font-bold text-[#E11D48] hover:underline flex items-center"
           >
-            <span>{accounts.length} {lang === 'bn' ? 'টি ওয়ালেট' : 'Wallets'}</span>
+            <span>{lang === 'bn' ? 'ব্যবস্থাপনা' : 'Manage All'}</span>
             <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
           </button>
         </div>
@@ -203,14 +247,14 @@ export default function OverviewCards({
             return (
               <div
                 key={acc.id}
-                onClick={() => setActiveTab && setActiveTab('accounts')}
-                className="min-w-[140px] sm:min-w-[150px] p-3.5 rounded-2xl bg-white border border-[#EED8C7] shadow-xs flex flex-col items-center text-center justify-between snap-start cursor-pointer hover:border-[#F36259] transition"
+                onClick={() => setActiveTab('accounts')}
+                className="min-w-[150px] p-3.5 rounded-2xl bg-white border border-[#F3D7D9] shadow-xs flex flex-col items-center text-center justify-between snap-start cursor-pointer hover:border-[#E11D48] hover:shadow-md transition"
               >
                 <BrandLogo name={acc.account_name} type={acc.account_type} className="w-8 h-8 mb-2 shadow-xs" />
                 <p className="text-xs font-bold text-slate-800 truncate w-full" title={displayName}>
                   {displayName}
                 </p>
-                <p className="text-xs font-black text-[#F36259] font-mono mt-1">
+                <p className="text-xs font-black text-[#E11D48] font-mono mt-1">
                   {formatBDT(acc.balance, lang)}
                 </p>
                 {accNumber && (
@@ -224,16 +268,16 @@ export default function OverviewCards({
         </div>
       </div>
 
-      {/* ৩. মান্থলি হিস্টোগ্রাম */}
-      <div className="bg-white border border-[#EED8C7] rounded-3xl p-5 md:p-6 shadow-xs">
+      {/* 3. Monthly Inflow/Outflow Velocity Chart */}
+      <div className="bg-white border border-[#F3D7D9] rounded-3xl p-5 md:p-6 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#F1EDEC] text-[#F36259] text-[10px] font-bold uppercase mb-1">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-50 text-[#E11D48] text-[10px] font-bold uppercase mb-1">
               <BarChart2 className="w-3 h-3" />
-              <span>{lang === 'bn' ? 'মাসিক নিরীক্ষা' : 'Monthly Analysis'}</span>
+              <span>{lang === 'bn' ? 'নগদ প্রবাহ নিরীক্ষা' : 'Cash Velocity'}</span>
             </div>
             <h3 className="text-base font-black text-slate-900 leading-tight">
-              {lang === 'bn' ? 'মাসিক ও প্রজেক্টভিত্তিক নিরীক্ষা' : 'Monthly & Project Audit'}
+              {lang === 'bn' ? 'মাসিক ও প্রজেক্টভিত্তিক নিরীক্ষা' : 'Monthly Cash Inflow & Outflow'}
             </h3>
           </div>
 
@@ -241,7 +285,7 @@ export default function OverviewCards({
             <select
               value={selectedProjectId}
               onChange={(e) => setSelectedProjectId(e.target.value)}
-              className="px-3 py-1.5 bg-[#F1EDEC] border border-[#EED8C7] rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:border-[#F36259]"
+              className="px-3 py-1.5 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:border-[#E11D48]"
             >
               <option value="all">{lang === 'bn' ? 'সব প্রজেক্ট' : 'All Projects'}</option>
               {projects.map((p) => (
@@ -255,60 +299,45 @@ export default function OverviewCards({
               type="month"
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="px-3 py-1.5 bg-[#F1EDEC] border border-[#EED8C7] rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:border-[#F36259] font-mono"
+              className="px-3 py-1.5 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:border-[#E11D48] font-mono"
             />
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          <div className="p-3 rounded-2xl bg-[#F1EDEC] border border-[#EED8C7]">
-            <span className="text-[10px] font-bold text-blue-600 uppercase">
-              {lang === 'bn' ? 'মোট প্রাপ্তি (Inflow)' : 'Filtered Inflow'}
-            </span>
-            <p className="text-sm sm:text-base font-black text-blue-700 font-mono mt-0.5">
-              +{formatBDT(totalMonthInflow, lang)}
-            </p>
-          </div>
-          <div className="p-3 rounded-2xl bg-[#F1EDEC] border border-[#EED8C7]">
-            <span className="text-[10px] font-bold text-[#F36259] uppercase">
-              {lang === 'bn' ? 'মোট ব্যয় (Outflow)' : 'Filtered Outflow'}
-            </span>
-            <p className="text-sm sm:text-base font-black text-[#F36259] font-mono mt-0.5">
-              -{formatBDT(totalMonthOutflow, lang)}
-            </p>
-          </div>
-        </div>
-
-        <div className="h-60 w-full">
+        <div className="h-60 w-full pt-2">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={histogramData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1EDEC" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#FFF1F2" vertical={false} />
               <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} />
               <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} />
               <Tooltip 
                 contentStyle={{ 
                   backgroundColor: '#ffffff', 
                   borderRadius: '1rem', 
-                  border: '1px solid #EED8C7' 
-                }}
+                  border: '1px solid #F3D7D9',
+                  boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05)'
+                }} 
               />
               <Legend iconType="circle" wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} />
-              <Bar dataKey="Inflow" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={18} />
-              <Bar dataKey="Outflow" fill="#F36259" radius={[6, 6, 0, 0]} barSize={18} />
+              <Bar dataKey="Inflow" name={lang === 'bn' ? 'প্রাপ্তি (Inflow)' : 'Inflow'} fill="#10b981" radius={[6, 6, 0, 0]} barSize={18} />
+              <Bar dataKey="Outflow" name={lang === 'bn' ? 'ব্যয় (Outflow)' : 'Outflow'} fill="#E11D48" radius={[6, 6, 0, 0]} barSize={18} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* ৪. প্রজেক্ট প্রিভিউ */}
+      {/* 4. Active Projects */}
       <div>
         <div className="flex items-center justify-between mb-2.5 px-1">
-          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-            {lang === 'bn' ? 'অ্যাক্টিভ প্রজেক্টসমূহ' : 'Active Projects'}
-          </h3>
+          <div className="flex items-center gap-2">
+            <Briefcase className="w-4 h-4 text-[#E11D48]" />
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+              {lang === 'bn' ? 'অ্যাক্টিভ প্রজেক্টসমূহ' : 'Active Projects'}
+            </h3>
+          </div>
           <button
-            onClick={() => setActiveTab && setActiveTab('projects')}
-            className="text-[11px] font-bold text-[#F36259] hover:underline flex items-center"
+            onClick={() => setActiveTab('projects')}
+            className="text-[11px] font-bold text-[#E11D48] hover:underline flex items-center"
           >
             <span>{lang === 'bn' ? 'সবগুলো' : 'View All'}</span>
             <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
@@ -323,25 +352,26 @@ export default function OverviewCards({
             const percent = budget > 0 ? Math.min(Math.round((spent / budget) * 100), 100) : 0;
 
             return (
-              <div key={proj.id} className="p-4 rounded-2xl bg-white border border-[#EED8C7] shadow-xs">
+              <div key={proj.id} className="p-4 rounded-2xl bg-white border border-[#F3D7D9] shadow-xs">
                 <div className="flex items-center justify-between mb-1.5">
                   <h4 className="text-xs font-bold text-slate-900 truncate max-w-[160px]">{proj.name}</h4>
-                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-[#EED8C7] text-slate-800">
+                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-rose-50 text-[#E11D48] border border-rose-100">
                     {proj.status}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
-                  <span>Spent: <strong className="text-[#F36259] font-mono">{formatBDT(spent, lang)}</strong></span>
+                  <span>Spent: <strong className="text-[#E11D48] font-mono">{formatBDT(spent, lang)}</strong></span>
                   <span>Budget: <strong className="text-slate-800 font-mono">{formatBDT(budget, lang)}</strong></span>
                 </div>
-                <div className="w-full h-1.5 bg-[#F1EDEC] rounded-full overflow-hidden">
-                  <div className="h-full bg-[#F36259] rounded-full" style={{ width: `${percent}%` }} />
+                <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#E11D48] rounded-full" style={{ width: `${percent}%` }} />
                 </div>
               </div>
             );
           })}
         </div>
       </div>
+
     </div>
   );
 }
