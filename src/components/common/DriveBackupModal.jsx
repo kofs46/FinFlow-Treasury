@@ -1,20 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  silentSyncToDrive, 
-  fetchDriveBackup 
-} from '../../services/googleDriveSilentSync';
-import { 
   Cloud, 
-  RefreshCw, 
+  ShieldCheck, 
   CheckCircle2, 
   AlertCircle, 
   X, 
-  HardDrive, 
-  DownloadCloud,
-  LogOut
+  ArrowRightLeft, 
+  DownloadCloud, 
+  UploadCloud,
+  Mail,
+  Clock,
+  Zap,
+  Repeat
 } from 'lucide-react';
+import { silentSyncToDrive, loadBackupFromDrive } from '../../services/googleDriveSilentSync';
+import { checkAndRunFrequencyBackup } from '../../services/autoBackupManager';
 
-// Apnar Real Google Client ID
 const GOOGLE_CLIENT_ID = '308051597995-l8busgt4m3t0dto1tft1648tiu6d63gg.apps.googleusercontent.com';
 
 export default function DriveBackupModal({ 
@@ -24,43 +25,43 @@ export default function DriveBackupModal({
   onRestoreCompleted 
 }) {
   const [isConnected, setIsConnected] = useState(false);
-  const [userEmail, setUserEmail] = useState(localStorage.getItem('gdrive_user_email') || '');
-  const [lastSync, setLastSync] = useState(localStorage.getItem('gdrive_last_sync') || null);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
+  const [lastSync, setLastSync] = useState('');
+  const [syncFreq, setSyncFreq] = useState('1'); // '1' = 24h, '3' = 3 days, '7' = 7 days
   const [statusMsg, setStatusMsg] = useState('');
   const [isError, setIsError] = useState(false);
-
-  const [backupFrequency, setBackupFrequency] = useState(() => {
-    return localStorage.getItem('gdrive_sync_freq') || '3';
-  });
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      const token = localStorage.getItem('gdrive_access_token');
-      setIsConnected(!!token);
-      setUserEmail(localStorage.getItem('gdrive_user_email') || '');
-      setLastSync(localStorage.getItem('gdrive_last_sync') || null);
+      const email = localStorage.getItem('gdrive_user_email') || '';
+      const connectedFlag = localStorage.getItem('gdrive_connected') === 'true';
+      const syncTime = localStorage.getItem('gdrive_last_sync') || '';
+      const savedFreq = localStorage.getItem('gdrive_sync_freq') || '1';
+
+      const activelyConnected = connectedFlag || Boolean(email);
+
+      setIsConnected(activelyConnected);
+      setUserEmail(email);
+      setLastSync(syncTime);
+      setSyncFreq(savedFreq);
       setStatusMsg('');
+      setIsError(false);
+
+      if (activelyConnected) {
+        localStorage.setItem('gdrive_connected', 'true');
+      }
     }
   }, [isOpen]);
 
-  const handleFrequencyChange = (e) => {
-    const val = e.target.value;
-    setBackupFrequency(val);
-    localStorage.setItem('gdrive_sync_freq', val);
-  };
+  if (!isOpen) return null;
 
-  // Direct Google OAuth Login & Drive Authorization
-  const handleLinkGoogleDrive = () => {
+  const requestGoogleToken = (onSuccess) => {
     if (!window.google || !window.google.accounts) {
       setIsError(true);
-      setStatusMsg('Google API load hoyni. Doyakore internet connection check korun.');
+      setStatusMsg('Google API client failed to load. Check your internet connection.');
       return;
     }
-
-    setIsProcessing(true);
-    setStatusMsg('Google authorization popup open hocche...');
-    setIsError(false);
 
     try {
       const tokenClient = window.google.accounts.oauth2.initTokenClient({
@@ -70,7 +71,7 @@ export default function DriveBackupModal({
           if (tokenResponse.error) {
             setIsProcessing(false);
             setIsError(true);
-            setStatusMsg(`Google login cancel ba error: ${tokenResponse.error}`);
+            setStatusMsg(`Authentication failed: ${tokenResponse.error}`);
             return;
           }
 
@@ -79,225 +80,298 @@ export default function DriveBackupModal({
             localStorage.setItem('gdrive_access_token', token);
             localStorage.setItem('gdrive_connected', 'true');
 
-            // Fetch Connected Gmail Address
             try {
-              const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+              const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
                 headers: { Authorization: `Bearer ${token}` }
               });
-              const userInfo = await userInfoRes.json();
-              if (userInfo && userInfo.email) {
-                setUserEmail(userInfo.email);
-                localStorage.setItem('gdrive_user_email', userInfo.email);
+              const info = await res.json();
+              if (info?.email) {
+                localStorage.setItem('gdrive_user_email', info.email);
+                setUserEmail(info.email);
               }
             } catch (e) {
-              console.log('User info fetch skipped');
+              console.warn('Could not fetch Google profile email');
             }
 
             setIsConnected(true);
-            setIsProcessing(false);
-            setStatusMsg('Google Drive shofolbhabe link hoyeche!');
-
-            // Prothom auto backup run kora
-            handleManualBackup(token);
+            if (onSuccess) await onSuccess(token);
           }
-        },
+        }
       });
 
-      // Google Account Select Popup Trigger
-      tokenClient.requestAccessToken({ prompt: 'select_account' });
+      tokenClient.requestAccessToken({ prompt: isConnected ? '' : 'select_account' });
     } catch (err) {
       setIsProcessing(false);
       setIsError(true);
-      setStatusMsg(`Login error: ${err.message}`);
+      setStatusMsg(`OAuth Error: ${err.message}`);
     }
   };
 
-  // Manual Backup Trigger
-  const handleManualBackup = async () => {
+  const handleConnectOrSwitch = () => {
     setIsProcessing(true);
-    setStatusMsg('Google Drive-e data sync hocche...');
+    setStatusMsg('Connecting Google Drive...');
     setIsError(false);
 
-    const res = await silentSyncToDrive(currentTreasuryData);
-    setIsProcessing(false);
+    requestGoogleToken(async () => {
+      if (currentTreasuryData) {
+        await silentSyncToDrive(currentTreasuryData);
+      }
+      setIsProcessing(false);
+      setStatusMsg('Google Drive connected successfully!');
+      setLastSync(new Date().toISOString());
+      localStorage.setItem('gdrive_connected', 'true');
+    });
+  };
 
-    if (res.success) {
-      setLastSync(res.timestamp);
-      setStatusMsg('Data shofolbhabe Google Drive-e backup hoyeche!');
-    } else {
-      setIsError(true);
-      if (res.reason === 'TOKEN_EXPIRED') {
-        setStatusMsg('Drive session expired. Doyakore punoray link korun.');
-        handleDisconnect();
+  const handleManualBackup = () => {
+    setIsProcessing(true);
+    setStatusMsg('Backing up your treasury data to Google Drive...');
+    setIsError(false);
+
+    const token = localStorage.getItem('gdrive_access_token');
+    if (!token) {
+      requestGoogleToken(async () => {
+        const res = await silentSyncToDrive(currentTreasuryData);
+        setIsProcessing(false);
+        if (res.success) {
+          setStatusMsg('Backup successfully saved to your Google Drive!');
+          setLastSync(new Date().toISOString());
+        } else {
+          setIsError(true);
+          setStatusMsg('Backup failed: ' + (res.error || 'Unknown error'));
+        }
+      });
+      return;
+    }
+
+    silentSyncToDrive(currentTreasuryData).then((res) => {
+      setIsProcessing(false);
+      if (res.success) {
+        setStatusMsg('Backup successfully saved to your Google Drive!');
+        setLastSync(new Date().toISOString());
       } else {
-        setStatusMsg('Backup fail hoyeche. Internet connection check korun.');
+        requestGoogleToken(async () => {
+          await silentSyncToDrive(currentTreasuryData);
+          setStatusMsg('Backup successfully saved to your Google Drive!');
+          setLastSync(new Date().toISOString());
+        });
       }
-    }
+    });
   };
 
-  // Restore from Drive
-  const handleRestoreBackup = async () => {
-    if (!window.confirm('Google Drive theke backup restore korte chan? Current data sync hoye jabe.')) return;
+  const handleManualRestore = () => {
+    const confirmRestore = window.confirm(
+      'Restoring from Google Drive will sync cloud records to your local treasury. Proceed?'
+    );
+    if (!confirmRestore) return;
 
     setIsProcessing(true);
-    setStatusMsg('Google Drive theke backup file ana hocche...');
+    setStatusMsg('Searching for backup in your Google Drive...');
     setIsError(false);
 
-    const result = await fetchDriveBackup();
-    setIsProcessing(false);
+    const executeRestore = async () => {
+      const res = await loadBackupFromDrive();
+      setIsProcessing(false);
 
-    if (result && result.backupContent?.payload) {
-      if (onRestoreCompleted) {
-        onRestoreCompleted(result.backupContent.payload);
+      if (res.success) {
+        setStatusMsg('Data successfully recovered from Google Drive!');
+        if (onRestoreCompleted) onRestoreCompleted(res.data);
+      } else {
+        setIsError(true);
+        setStatusMsg(
+          res.reason === 'NO_BACKUP_FOUND'
+            ? 'No backup file found in this Google Drive account.'
+            : 'Could not restore backup: ' + (res.error || res.reason)
+        );
       }
-      setStatusMsg('Data shofolbhabe Google Drive theke restore hoyeche!');
+    };
+
+    const token = localStorage.getItem('gdrive_access_token');
+    if (!token) {
+      requestGoogleToken(executeRestore);
     } else {
-      setIsError(true);
-      setStatusMsg('Google Drive-e kono backup file pawa jayni.');
+      executeRestore();
     }
   };
 
-  // Disconnect Drive
-  const handleDisconnect = () => {
-    localStorage.removeItem('gdrive_access_token');
-    localStorage.removeItem('gdrive_connected');
-    localStorage.removeItem('gdrive_user_email');
-    localStorage.removeItem('gdrive_last_sync');
-    setIsConnected(false);
-    setUserEmail('');
-    setLastSync(null);
-    setStatusMsg('Google account disconnected.');
+  const handleFreqChange = (e) => {
+    const val = e.target.value;
+    setSyncFreq(val);
+    localStorage.setItem('gdrive_sync_freq', val);
+    checkAndRunFrequencyBackup();
+    
+    const labelMap = {
+      '1': 'Every 24 Hours',
+      '3': 'Every 3 Days',
+      '7': 'Weekly (Every 7 Days)'
+    };
+    setStatusMsg(`Auto-backup set to: ${labelMap[val] || val + ' Days'}`);
   };
-
-  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
-      <div className="w-full max-w-md bg-white border border-[#F3D7D9] rounded-3xl p-6 shadow-2xl relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs select-none">
+      <div className="w-full max-w-lg bg-white border border-[#F3D7D9] rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 animate-in zoom-in-95 duration-200">
         
-        {/* Close Button */}
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute right-5 top-5 p-1 rounded-full text-slate-400 hover:text-slate-800 transition cursor-pointer"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        {/* Modal Header */}
-        <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-          <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
-            <Cloud className="w-5 h-5" />
+        {/* Header */}
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-200 text-[#E11D48] flex items-center justify-center shadow-xs">
+              <Cloud className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-base font-black text-slate-900 leading-tight">
+                Google Drive Auto-Backup
+              </h3>
+              <p className="text-xs text-slate-400 font-medium">
+                Configurable automated interval backup
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-base font-black text-slate-900">Google Drive Auto-Backup</h3>
-            <p className="text-xs text-slate-500">Silent cloud sync & 1-tap data recovery</p>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        {/* Drive Status Panel */}
-        <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+        {/* Status Details */}
+        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
+          
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
-              <HardDrive className="w-4 h-4 text-slate-400" />
+            <span className="text-xs font-bold text-slate-600 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
               <span>Drive Link Status:</span>
             </span>
-            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
-              isConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+
+            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+              isConnected 
+                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                : 'bg-rose-50 text-[#E11D48] border border-rose-200'
             }`}>
               {isConnected ? 'CONNECTED' : 'NOT CONNECTED'}
             </span>
           </div>
 
-          {isConnected && userEmail && (
-            <div className="text-xs text-slate-600 pt-1 flex items-center justify-between border-t border-slate-200/60">
-              <span>Account:</span>
-              <strong className="font-mono text-emerald-700">{userEmail}</strong>
+          <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200/60">
+            <span className="font-bold text-slate-600 flex items-center gap-2">
+              <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+              <span>Auto Cloud Sync:</span>
+            </span>
+            {isConnected ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-100/70 border border-emerald-200 text-emerald-800 text-[10px] font-black uppercase tracking-wider">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                ACTIVE
+              </span>
+            ) : (
+              <span className="text-[10px] font-black uppercase text-slate-400">INACTIVE</span>
+            )}
+          </div>
+
+          {userEmail && (
+            <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200/60">
+              <span className="font-bold text-slate-500 flex items-center gap-1.5">
+                <Mail className="w-3.5 h-3.5 text-slate-400" />
+                <span>Linked Account:</span>
+              </span>
+              <span className="font-mono font-bold text-slate-800">{userEmail}</span>
             </div>
           )}
 
-          <div className="text-xs text-slate-500 pt-1 flex items-center justify-between">
-            <span>Last Cloud Backup:</span>
-            <strong className="font-mono text-slate-800">
-              {lastSync ? new Date(lastSync).toLocaleString('en-GB') : 'Never'}
-            </strong>
+          <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200/60">
+            <span className="font-bold text-slate-500 flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              <span>Last Cloud Backup:</span>
+            </span>
+            <span className="font-mono font-bold text-slate-800">
+              {lastSync ? new Date(lastSync).toLocaleString('en-GB') : 'No backup yet'}
+            </span>
           </div>
         </div>
 
-        {/* Sync Frequency Dropdown */}
-        <div className="mt-4">
-          <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-            Auto-Sync Frequency
-          </label>
+        {/* Dynamic Frequency Interval Selector */}
+        <div className="p-4 rounded-2xl bg-rose-50/50 border border-rose-100 space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
+              <Repeat className="w-4 h-4 text-[#E11D48]" />
+              <span>Auto-Backup Interval</span>
+            </label>
+            <span className="text-[10px] font-bold text-[#E11D48] bg-rose-100 px-2 py-0.5 rounded-full">
+              Automated
+            </span>
+          </div>
+
           <select
-            value={backupFrequency}
-            onChange={handleFrequencyChange}
-            className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold text-slate-800"
+            value={syncFreq}
+            onChange={handleFreqChange}
+            className="w-full px-3.5 py-2.5 bg-white border border-[#F3D7D9] rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#E11D48] transition cursor-pointer shadow-xs"
           >
             <option value="1">Daily (Every 24 Hours)</option>
             <option value="3">Every 3 Days (Recommended)</option>
             <option value="7">Weekly (Every 7 Days)</option>
           </select>
-          <p className="text-[10px] text-slate-400 mt-1">
-            FinFlow will automatically check and refresh your backup file when due.
+          <p className="text-[11px] text-slate-500 font-medium">
+            System will automatically execute a silent backup to your Google Drive every <strong>{syncFreq === '1' ? '24 Hours' : syncFreq === '3' ? '3 Days' : '7 Days'}</strong> without needing manual clicks.
           </p>
         </div>
 
-        {/* Status Alert */}
+        {/* Action Status Notification */}
         {statusMsg && (
-          <div className={`mt-3 p-2.5 rounded-xl text-[11px] font-bold flex items-center gap-1.5 ${
-            isError ? 'bg-rose-50 border border-rose-200 text-[#E11D48]' : 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+          <div className={`p-3 rounded-2xl text-xs font-bold flex items-center gap-2 ${
+            isError ? 'bg-rose-50 text-[#E11D48] border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
           }`}>
-            {isError ? <AlertCircle className="w-3.5 h-3.5 shrink-0" /> : <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
+            {isError ? <AlertCircle className="w-4 h-4 shrink-0" /> : <CheckCircle2 className="w-4 h-4 shrink-0" />}
             <span>{statusMsg}</span>
           </div>
         )}
 
         {/* Action Buttons */}
-        <div className="mt-5 space-y-2.5">
-          {!isConnected ? (
-            <button
-              type="button"
-              disabled={isProcessing}
-              onClick={handleLinkGoogleDrive}
-              className="w-full py-3 bg-[#E11D48] hover:bg-[#BE123C] active:scale-98 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 shadow-md transition disabled:opacity-50 cursor-pointer"
-            >
-              <Cloud className="w-4 h-4" />
-              <span>{isProcessing ? 'Connecting...' : 'Link Google Drive Account'}</span>
-            </button>
-          ) : (
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-2.5 pt-1">
+          {isConnected ? (
+            <>
+              <div className="grid grid-cols-2 gap-2.5">
                 <button
                   type="button"
                   disabled={isProcessing}
-                  onClick={() => handleManualBackup()}
-                  className="py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition disabled:opacity-50 cursor-pointer active:scale-98"
+                  onClick={handleManualBackup}
+                  className="py-3 px-4 bg-[#E11D48] hover:bg-[#BE123C] active:scale-98 text-white rounded-2xl text-xs font-bold shadow-md shadow-rose-950/15 flex items-center justify-center gap-2 transition disabled:opacity-50 cursor-pointer"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isProcessing ? 'animate-spin' : ''}`} />
-                  <span>Backup Now</span>
+                  <UploadCloud className="w-4 h-4" />
+                  <span>{isProcessing ? 'Syncing...' : 'Backup Now'}</span>
                 </button>
 
                 <button
                   type="button"
                   disabled={isProcessing}
-                  onClick={handleRestoreBackup}
-                  className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition disabled:opacity-50 cursor-pointer active:scale-98"
+                  onClick={handleManualRestore}
+                  className="py-3 px-4 bg-slate-900 hover:bg-slate-800 active:scale-98 text-white rounded-2xl text-xs font-bold shadow-md flex items-center justify-center gap-2 transition disabled:opacity-50 cursor-pointer"
                 >
-                  <DownloadCloud className="w-3.5 h-3.5" />
+                  <DownloadCloud className="w-4 h-4" />
                   <span>Restore Data</span>
                 </button>
               </div>
 
               <button
                 type="button"
-                onClick={handleDisconnect}
-                className="w-full py-1.5 text-[11px] font-bold text-slate-400 hover:text-[#E11D48] transition cursor-pointer flex items-center justify-center gap-1"
+                disabled={isProcessing}
+                onClick={handleConnectOrSwitch}
+                className="w-full py-2.5 text-center text-xs font-bold text-slate-500 hover:text-[#E11D48] transition cursor-pointer flex items-center justify-center gap-1.5"
               >
-                <LogOut className="w-3 h-3" />
-                <span>Disconnect Google Account</span>
+                <ArrowRightLeft className="w-3.5 h-3.5" />
+                <span>Switch / Re-link Google Account</span>
               </button>
-            </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={isProcessing}
+              onClick={handleConnectOrSwitch}
+              className="w-full py-3.5 px-4 bg-[#E11D48] hover:bg-[#BE123C] active:scale-98 text-white rounded-2xl text-xs font-black shadow-lg shadow-rose-950/15 flex items-center justify-center gap-2 transition disabled:opacity-50 cursor-pointer"
+            >
+              <Cloud className="w-4 h-4" />
+              <span>{isProcessing ? 'Connecting...' : 'Link Google Drive Account'}</span>
+            </button>
           )}
         </div>
 

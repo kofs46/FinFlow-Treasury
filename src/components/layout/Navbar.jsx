@@ -1,244 +1,439 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../context/AuthContext';
-import NotificationDropdown from '../common/NotificationDropdown';
 import { 
-  Menu, 
-  X, 
-  Cloud, 
+  Menu as MenuIcon, 
+  Bell, 
   Plus, 
-  Headphones, 
-  LogOut, 
   ChevronDown,
-  LayoutDashboard,
-  Wallet,
-  FolderGit2,
-  Receipt,
-  FileSpreadsheet,
-  BarChart3,
-  Scale
+  CheckCheck,
+  AlertCircle,
+  Info,
+  CheckCircle2,
+  X,
+  Volume2,
+  Mail,
+  Phone,
+  Edit2,
+  LogOut
 } from 'lucide-react';
 
 export default function Navbar({ 
-  activeTab,
-  onNavigateTab, 
-  onNavigateHome,
-  onOpenAddTx,
-  onOpenDriveSync,
-  onOpenContact, 
-  onOpenProfile
+  onToggleSidebar, 
+  onNavigateHome, 
+  onOpenAddTx, 
+  onOpenProfile 
 }) {
-  const { user, profile, signOut } = useAuth();
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const { user, signOut } = useAuth();
+  
+  // Profile Data State
+  const [profileData, setProfileData] = useState({
+    fullName: user?.user_metadata?.full_name || '',
+    phone: user?.user_metadata?.phone || '',
+    avatarUrl: ''
+  });
 
-  const displayName = profile?.full_name?.trim() || user?.email?.split('@')[0] || 'User';
+  // Dropdown & Notifications State
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  const navItems = [
-    { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { key: 'accounts', label: 'Accounts & Wallets', icon: Wallet },
-    { key: 'projects', label: 'Projects Ledger', icon: FolderGit2 },
-    { key: 'debts', label: 'Debts & Lending', icon: Receipt },
-    { key: 'reconcile', label: 'Tax & Compliance', icon: Scale },
-    { key: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { key: 'statements', label: 'Statements & Audit', icon: FileSpreadsheet },
-  ];
+  const profileRef = useRef(null);
 
-  const handleSelectTab = (key) => {
-    if (onNavigateTab) onNavigateTab(key);
-    setIsDrawerOpen(false);
+  const [permissionGranted, setPermissionGranted] = useState(
+    typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
+  );
+
+  // Load Real Profile & Avatar from Supabase
+  const loadLiveProfile = async () => {
+    if (!user?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('full_name, phone, avatar_url')
+        .eq('id', user.id)
+        .single();
+
+      if (!error && data) {
+        setProfileData({
+          fullName: data.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0],
+          phone: data.phone || 'No phone recorded',
+          avatarUrl: data.avatar_url || ''
+        });
+      }
+    } catch (err) {
+      console.warn('Profile fetch warning:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadLiveProfile();
+
+    // Listen to custom profile update event
+    const handleProfileUpdated = (e) => {
+      if (e.detail) {
+        setProfileData((prev) => ({
+          ...prev,
+          fullName: e.detail.full_name || prev.fullName,
+          phone: e.detail.phone || prev.phone,
+          avatarUrl: e.detail.avatar_url || prev.avatarUrl
+        }));
+      }
+    };
+
+    window.addEventListener('finflow_profile_updated', handleProfileUpdated);
+    return () => window.removeEventListener('finflow_profile_updated', handleProfileUpdated);
+  }, [user?.id]);
+
+  // Click outside to close profile dropdown
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (profileRef.current && !profileRef.current.contains(event.target)) {
+        setIsProfileOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Request Phone/Web Push Notification Permission
+  const requestPhoneNotificationPermission = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        setPermissionGranted(true);
+        new Notification('FinFlow Treasury', {
+          body: 'Phone push notifications are now active!',
+          icon: '/logo.png'
+        });
+      }
+    }
+  };
+
+  // Fetch Supabase Notifications
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const fetchNotifications = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (!error && data) {
+          setNotifications(data);
+          setUnreadCount(data.filter(n => !n.is_read).length);
+        }
+      } catch (err) {
+        console.warn('Notification fetch warning:', err);
+      }
+    };
+
+    fetchNotifications();
+
+    const channel = supabase
+      .channel('public:notifications')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, (payload) => {
+        const newNotif = payload.new;
+        setNotifications((prev) => [newNotif, ...prev]);
+        setUnreadCount((prev) => prev + 1);
+
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          new Notification(newNotif.title || 'FinFlow Treasury', {
+            body: newNotif.message || 'New financial activity logged in your vault.',
+            icon: '/logo.png'
+          });
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
+  const handleMarkAllRead = async () => {
+    if (!user?.id) return;
+    try {
+      await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', user.id);
+
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+      setUnreadCount(0);
+    } catch (err) {
+      console.warn('Could not mark read:', err);
+    }
+  };
+
+  const getNotifIcon = (type) => {
+    switch (type) {
+      case 'warning':
+      case 'alert':
+        return <AlertCircle className="w-3.5 h-3.5 text-rose-600" />;
+      case 'success':
+        return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />;
+      default:
+        return <Info className="w-3.5 h-3.5 text-blue-600" />;
+    }
   };
 
   return (
-    <>
-      <header className="w-full bg-white h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8 select-none border-b border-slate-100 relative z-30 shadow-xs">
+    <header className="w-full bg-white border-b border-[#F3D7D9] px-4 sm:px-6 py-3 select-none relative z-30">
+      <div className="flex items-center justify-between gap-4">
         
-        {/* HAMBURGER MENU & BRAND */}
-        <div className="flex items-center gap-3 sm:gap-4">
+        {/* Left: Menu & Brand Logo */}
+        <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setIsDrawerOpen(true)}
-            className="p-2.5 rounded-2xl bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-300 text-slate-700 hover:text-[#E11D48] transition cursor-pointer active:scale-95 shadow-xs flex items-center gap-2"
-            title="Open Main Navigation Menu"
+            onClick={onToggleSidebar}
+            className="flex items-center gap-2 py-2 px-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-rose-50 text-slate-800 hover:text-[#E11D48] text-xs font-bold transition cursor-pointer shadow-xs active:scale-95"
+            title="Toggle Menu"
           >
-            <Menu className="w-5 h-5 text-[#E11D48]" />
-            <span className="text-xs font-black tracking-tight hidden sm:inline text-slate-800">Menu</span>
+            <MenuIcon className="w-4 h-4 text-slate-600" />
+            <span>Menu</span>
           </button>
 
           <button
             type="button"
             onClick={onNavigateHome}
-            className="flex items-center gap-2.5 text-left cursor-pointer hover:opacity-90 transition focus:outline-none"
+            className="flex items-center gap-2.5 group cursor-pointer ml-1"
           >
-            <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center p-1 shadow-xs border border-[#F3D7D9] overflow-hidden">
+            <div className="w-9 h-9 rounded-xl bg-rose-50 border border-rose-200 p-1 flex items-center justify-center shadow-xs group-hover:scale-105 transition">
               <img 
                 src="/logo.png" 
-                alt="FinFlow" 
+                alt="FinFlow Logo" 
                 className="w-full h-full object-contain" 
               />
             </div>
-            <div>
+            <div className="text-left hidden sm:block">
               <div className="flex items-center gap-1.5 leading-none">
-                <span className="text-base font-black tracking-tight text-slate-900">
-                  FinFlow
-                </span>
-                <span className="px-1.5 py-0.5 rounded-md bg-rose-50 text-[#E11D48] text-[9px] font-black uppercase tracking-wider border border-rose-200">
-                  Treasury
+                <span className="text-base font-black text-slate-950 tracking-tight">FinFlow</span>
+                <span className="text-[9px] font-black uppercase tracking-wider bg-rose-100/70 text-[#E11D48] px-1.5 py-0.5 rounded-md">
+                  TREASURY
                 </span>
               </div>
-              <p className="text-[10px] font-medium text-slate-400 mt-0.5">
+              <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
                 Liquidity Management
               </p>
             </div>
           </button>
         </div>
 
-        {/* NOTIFICATIONS & PROFILE */}
-        <div className="flex items-center gap-3">
-          <NotificationDropdown onNavigateTab={onNavigateTab} />
-
+        {/* Right: Actions, Notifications & Profile Hub */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          
           <button
             type="button"
-            onClick={onOpenProfile}
-            className="flex items-center gap-2 pl-1.5 pr-2.5 py-1 rounded-full bg-slate-50 hover:bg-rose-50 border border-slate-200 hover:border-rose-300 transition group cursor-pointer active:scale-95 shrink-0"
-            title="Account Profile"
+            onClick={onOpenAddTx}
+            className="hidden md:flex items-center gap-1.5 py-2 px-3.5 bg-[#E11D48] hover:bg-[#BE123C] active:scale-95 text-white rounded-xl text-xs font-bold shadow-sm shadow-rose-950/10 transition cursor-pointer"
           >
-            <div className="w-7 h-7 rounded-full bg-[#E11D48] text-white flex items-center justify-center text-xs font-black shadow-xs overflow-hidden shrink-0">
-              {profile?.avatar_url ? (
-                <img 
-                  src={profile.avatar_url} 
-                  alt="Avatar" 
-                  className="w-full h-full object-cover" 
-                />
-              ) : (
-                displayName.charAt(0).toUpperCase()
-              )}
-            </div>
-            <span className="hidden sm:inline text-xs font-bold text-slate-800 group-hover:text-[#E11D48] max-w-[110px] truncate">
-              {displayName}
-            </span>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-[#E11D48] shrink-0" />
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Add Transaction</span>
           </button>
-        </div>
-      </header>
 
-      {/* SLIDE-OUT MENU DRAWER */}
-      {isDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex">
-          <div 
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
-            onClick={() => setIsDrawerOpen(false)}
-          />
-
-          <div className="relative w-72 sm:w-80 bg-white h-full shadow-2xl flex flex-col justify-between border-r border-[#F3D7D9] z-50 animate-in slide-in-from-left duration-200">
-            
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-white border border-[#F3D7D9] flex items-center justify-center p-1">
-                  <img src="/logo.png" alt="FinFlow" className="w-full h-full object-contain" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-black text-slate-900 leading-tight">FinFlow Menu</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase">Main Navigation</p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsDrawerOpen(false)}
-                className="p-1.5 rounded-full text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 space-y-1">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 px-3 block mb-1">
-                Modules
-              </span>
-
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeTab === item.key;
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => handleSelectTab(item.key)}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition cursor-pointer ${
-                      isActive 
-                        ? 'bg-[#E11D48] text-white shadow-md shadow-rose-950/10' 
-                        : 'text-slate-600 hover:bg-rose-50/70 hover:text-[#E11D48]'
-                    }`}
-                  >
-                    <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
-
-              <div className="pt-4 mt-3 border-t border-slate-100 space-y-1.5">
-                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 px-3 block mb-1">
-                  Actions & Cloud
+          {/* Notifications Dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setIsNotifOpen(!isNotifOpen)}
+              className="p-2 rounded-xl bg-slate-50 hover:bg-rose-50 border border-slate-200 text-slate-600 hover:text-[#E11D48] transition cursor-pointer relative"
+              title="Notifications"
+            >
+              <Bell className="w-4 h-4" />
+              {unreadCount > 0 && (
+                <span className="min-w-4 h-4 px-1 rounded-full bg-[#E11D48] text-[9px] font-black text-white flex items-center justify-center absolute -top-1 -right-1 ring-2 ring-white">
+                  {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
+              )}
+            </button>
 
-                {onOpenAddTx && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onOpenAddTx();
-                      setIsDrawerOpen(false);
-                    }}
-                    className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-rose-50 text-[#E11D48] text-xs font-bold hover:bg-[#E11D48] hover:text-white transition cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add Transaction</span>
-                  </button>
+            {isNotifOpen && (
+              <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white border border-[#F3D7D9] rounded-3xl shadow-2xl overflow-hidden z-50 animate-in zoom-in-95 duration-150">
+                <div className="p-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black text-slate-900">Notifications</span>
+                    {unreadCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-full bg-rose-100 text-[#E11D48] text-[10px] font-black">
+                        {unreadCount} New
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {unreadCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleMarkAllRead}
+                        className="text-[10px] font-bold text-slate-500 hover:text-[#E11D48] flex items-center gap-1 cursor-pointer"
+                      >
+                        <CheckCheck className="w-3 h-3" />
+                        <span>Read all</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsNotifOpen(false)}
+                      className="p-1 rounded-lg text-slate-400 hover:bg-slate-200 transition cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {!permissionGranted && (
+                  <div className="p-2.5 bg-rose-50/70 border-b border-rose-100 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Volume2 className="w-3.5 h-3.5 text-[#E11D48] shrink-0" />
+                      <span className="text-[10px] font-bold text-slate-700">
+                        Enable phone & push alerts
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={requestPhoneNotificationPermission}
+                      className="py-1 px-2 bg-[#E11D48] text-white text-[10px] font-black rounded-lg cursor-pointer"
+                    >
+                      Enable
+                    </button>
+                  </div>
                 )}
 
-                {onOpenDriveSync && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onOpenDriveSync();
-                      setIsDrawerOpen(false);
-                    }}
-                    className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl bg-emerald-50 text-emerald-800 text-xs font-bold hover:bg-emerald-600 hover:text-white transition cursor-pointer"
-                  >
-                    <Cloud className="w-4 h-4" />
-                    <span>Google Drive Auto-Sync</span>
-                  </button>
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                  {notifications.length === 0 ? (
+                    <div className="py-10 text-center text-xs font-medium text-slate-400">
+                      No notifications yet
+                    </div>
+                  ) : (
+                    notifications.map((n) => (
+                      <div 
+                        key={n.id} 
+                        className={`p-3.5 transition flex items-start gap-3 hover:bg-slate-50/80 ${
+                          !n.is_read ? 'bg-rose-50/30' : ''
+                        }`}
+                      >
+                        <div className="p-1.5 rounded-xl bg-white border border-slate-200 shadow-xs mt-0.5 shrink-0">
+                          {getNotifIcon(n.type)}
+                        </div>
+                        <div className="flex-1 truncate">
+                          <p className="text-xs font-black text-slate-900 line-clamp-1">
+                            {n.title}
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">
+                            {n.message}
+                          </p>
+                          <span className="text-[9px] font-mono text-slate-400 mt-1 block">
+                            {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Profile Dropdown Hub */}
+          <div className="relative" ref={profileRef}>
+            <button
+              type="button"
+              onClick={() => setIsProfileOpen(!isProfileOpen)}
+              className="flex items-center gap-2 py-1 pl-1 pr-2.5 rounded-xl bg-slate-50 hover:bg-rose-50/80 border border-slate-200 transition cursor-pointer group shadow-xs active:scale-95"
+            >
+              <div className="w-8 h-8 rounded-lg overflow-hidden border border-rose-200 bg-rose-50 flex items-center justify-center shrink-0">
+                {profileData.avatarUrl ? (
+                  <img src={profileData.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-xs font-black uppercase text-[#E11D48]">
+                    {user?.email?.charAt(0) || 'U'}
+                  </span>
                 )}
               </div>
-            </div>
+              <div className="text-left hidden sm:block leading-none">
+                <span className="text-xs font-bold text-slate-800 group-hover:text-[#E11D48] transition block truncate max-w-[110px]">
+                  {profileData.fullName || 'My Account'}
+                </span>
+              </div>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition ml-0.5" />
+            </button>
 
-            <div className="p-4 border-t border-slate-100 space-y-2 bg-slate-50/50">
-              <button
-                type="button"
-                onClick={() => {
-                  if (onOpenContact) onOpenContact();
-                  setIsDrawerOpen(false);
-                }}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-slate-700 hover:bg-slate-100 hover:text-[#E11D48] transition text-xs font-semibold cursor-pointer"
-              >
-                <Headphones className="w-4 h-4 text-slate-400" />
-                <span>Help & Support</span>
-              </button>
+            {/* Profile Dropdown Menu Card */}
+            {isProfileOpen && (
+              <div className="absolute right-0 mt-2 w-72 bg-white border border-[#F3D7D9] rounded-3xl shadow-2xl p-4 z-50 animate-in zoom-in-95 duration-150">
+                
+                {/* User Info Header with Picture */}
+                <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+                  <div className="w-12 h-12 rounded-2xl overflow-hidden border-2 border-rose-200 bg-rose-50 flex items-center justify-center shrink-0 shadow-xs">
+                    {profileData.avatarUrl ? (
+                      <img src={profileData.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-base font-black uppercase text-[#E11D48]">
+                        {user?.email?.charAt(0) || 'U'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="truncate leading-tight">
+                    <h4 className="text-sm font-black text-slate-900 truncate">
+                      {profileData.fullName || 'User Profile'}
+                    </h4>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-[#E11D48] bg-rose-50 px-1.5 py-0.5 rounded-md inline-block mt-0.5">
+                      Treasury Admin
+                    </span>
+                  </div>
+                </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setIsDrawerOpen(false);
-                  signOut();
-                }}
-                className="w-full py-2 flex items-center justify-center gap-2 rounded-xl text-rose-600 hover:bg-rose-100/60 text-xs font-bold transition cursor-pointer"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>Sign Out</span>
-              </button>
-            </div>
+                {/* Contact Information List */}
+                <div className="py-3 space-y-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2.5 text-slate-600">
+                    <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span className="text-xs font-mono text-slate-700 truncate" title={user?.email}>
+                      {user?.email}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2.5 text-slate-600">
+                    <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span className="text-xs font-bold text-slate-700 truncate">
+                      {profileData.phone || 'No phone set'}
+                    </span>
+                  </div>
+                </div>
 
+                {/* Quick Action Buttons */}
+                <div className="pt-3 space-y-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsProfileOpen(false);
+                      onOpenProfile();
+                    }}
+                    className="w-full py-2 px-3 rounded-xl bg-slate-50 hover:bg-rose-50 text-slate-700 hover:text-[#E11D48] text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer border border-slate-200/70"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>Edit Profile & Password</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => signOut()}
+                    className="w-full py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-[#E11D48] text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+
+              </div>
+            )}
           </div>
+
         </div>
-      )}
-    </>
+
+      </div>
+    </header>
   );
 }

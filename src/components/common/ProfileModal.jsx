@@ -1,76 +1,88 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../context/AuthContext';
-import { useLang } from '../../context/LangContext';
 import { 
   X, 
   User, 
-  Camera, 
+  Mail, 
   Phone, 
   MapPin, 
-  Mail, 
+  KeyRound, 
   CheckCircle2, 
-  AlertCircle,
+  Eye, 
+  EyeOff, 
+  ShieldCheck,
+  Camera,
   Loader2
 } from 'lucide-react';
 
 export default function ProfileModal({ isOpen, onClose }) {
-  const { user, profile, fetchProfile } = useAuth();
-  const { lang } = useLang();
+  const { user } = useAuth();
   const fileInputRef = useRef(null);
 
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
 
-  const [uploading, setUploading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  const [loading, setLoading] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
-    if (isOpen) {
-      setFullName(profile?.full_name || '');
-      setPhone(profile?.phone || '');
-      setAddress(profile?.address || '');
-      setAvatarUrl(profile?.avatar_url || '');
-      setErrorMessage('');
-      setSuccessMessage('');
-    }
-  }, [isOpen, profile]);
+    if (!user || !isOpen) return;
+
+    const loadProfile = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('full_name, phone, address, avatar_url')
+          .eq('id', user.id)
+          .single();
+
+        if (!error && data) {
+          setFullName(data.full_name || '');
+          setPhone(data.phone || '');
+          setAddress(data.address || '');
+          setAvatarUrl(data.avatar_url || '');
+        } else {
+          setFullName(user.user_metadata?.full_name || '');
+        }
+      } catch (err) {
+        console.warn('Profile read warning:', err);
+      }
+    };
+
+    loadProfile();
+    setNewPassword('');
+    setConfirmPassword('');
+    setSuccessMsg('');
+    setErrorMsg('');
+  }, [user, isOpen]);
 
   if (!isOpen) return null;
 
-  const handleAvatarUpload = async (e) => {
+  // Real Profile Image Upload to Supabase Storage
+  const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
-    if (!file || !user) return;
+    if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      setErrorMessage(lang === 'bn' ? 'অনুগ্রহ করে একটি ছবি ফাইল দিন।' : 'Please select an image file.');
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      setErrorMessage(lang === 'bn' ? 'ছবির সাইজ সর্বোচ্চ ৫MB হতে পারবে।' : 'Image size cannot exceed 5MB.');
-      return;
-    }
-
-    setUploading(true);
-    setErrorMessage('');
-    setSuccessMessage('');
+    setUploadingImage(true);
+    setErrorMsg('');
 
     try {
       const fileExt = file.name.split('.').pop();
-      const filePath = `${user.id}-${Date.now()}.${fileExt}`;
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(filePath, file, { 
-          cacheControl: '3600',
-          upsert: true 
-        });
+        .upload(filePath, file, { upsert: true });
 
       if (uploadError) throw uploadError;
 
@@ -78,222 +90,295 @@ export default function ProfileModal({ isOpen, onClose }) {
         .from('avatars')
         .getPublicUrl(filePath);
 
-      setAvatarUrl(publicData.publicUrl);
-      setSuccessMessage(lang === 'bn' ? 'ছবি নির্বাচন সম্পন্ন! পরিবর্তন সংরক্ষণে সেভ বাটনে চাপুন।' : 'Photo uploaded! Click Save Changes to confirm.');
+      const finalUrl = publicData.publicUrl;
+      setAvatarUrl(finalUrl);
+
+      // Instant DB update
+      await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          avatar_url: finalUrl,
+          updated_at: new Date().toISOString()
+        });
+
+      // Dispatch global event for instant Navbar update
+      window.dispatchEvent(new CustomEvent('finflow_profile_updated', {
+        detail: { avatar_url: finalUrl, full_name: fullName, phone }
+      }));
+
     } catch (err) {
-      console.error('Avatar upload error:', err);
-      setErrorMessage(err.message || 'Error uploading photo.');
+      setErrorMsg(`Photo upload failed: ${err.message}`);
     } finally {
-      setUploading(false);
+      setUploadingImage(false);
     }
   };
 
-  const handleSaveProfile = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!user) return;
-
-    setSaving(true);
-    setErrorMessage('');
-    setSuccessMessage('');
+    setLoading(true);
+    setErrorMsg('');
+    setSuccessMsg('');
 
     try {
-      const payload = {
-        id: user.id,
-        full_name: fullName.trim(),
-        phone: phone.trim() || null,
-        address: address.trim() || null,
-        avatar_url: avatarUrl || null,
-        updated_at: new Date().toISOString()
-      };
+      // 1. Password Update if requested
+      if (newPassword) {
+        if (newPassword.length < 6) {
+          setErrorMsg('New password must be at least 6 characters long.');
+          setLoading(false);
+          return;
+        }
+        if (newPassword !== confirmPassword) {
+          setErrorMsg('New password and confirm password do not match.');
+          setLoading(false);
+          return;
+        }
 
-      const { error } = await supabase
-        .from('profiles')
-        .upsert(payload, { onConflict: 'id' });
+        const { error: pwdErr } = await supabase.auth.updateUser({
+          password: newPassword
+        });
 
-      if (error) throw error;
-
-      if (fetchProfile) {
-        await fetchProfile(user.id);
+        if (pwdErr) throw pwdErr;
       }
 
-      setSuccessMessage(lang === 'bn' ? 'প্রোফাইল সফলভাবে আপডেট হয়েছে!' : 'Profile updated successfully!');
+      // 2. Profile metadata update
+      const { error: profileErr } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          full_name: fullName.trim(),
+          phone: phone.trim(),
+          address: address.trim(),
+          avatar_url: avatarUrl,
+          updated_at: new Date().toISOString()
+        });
+
+      if (profileErr) throw profileErr;
+
+      // Update auth user metadata
+      await supabase.auth.updateUser({
+        data: { full_name: fullName.trim(), phone: phone.trim() }
+      });
+
+      // Dispatch update for Navbar live sync
+      window.dispatchEvent(new CustomEvent('finflow_profile_updated', {
+        detail: { avatar_url: avatarUrl, full_name: fullName.trim(), phone: phone.trim() }
+      }));
+
+      setSuccessMsg('Profile and security settings updated successfully!');
+      setNewPassword('');
+      setConfirmPassword('');
       setTimeout(() => {
         onClose();
-      }, 1000);
+      }, 1200);
     } catch (err) {
-      console.error('Profile update error:', err);
-      setErrorMessage(err.message || 'Failed to update profile.');
+      setErrorMsg(err.message || 'Error saving profile changes.');
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   };
 
-  const modalContent = (
-    <div 
-      className="fixed inset-0 z-[999999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none"
-      onClick={onClose}
-    >
-      <div 
-        className="w-full max-w-md rounded-3xl bg-white border border-[#E2E8F0] p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Close Button */}
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute right-5 top-5 p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
-        >
-          <X className="w-5 h-5" />
-        </button>
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs select-none animate-in fade-in duration-150">
+      <div className="w-full max-w-lg bg-white border border-[#F3D7D9] rounded-3xl p-6 sm:p-7 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+        
+        {/* Header */}
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+          <div>
+            <h3 className="text-base font-black text-slate-900">Profile & Security</h3>
+            <p className="text-xs text-slate-400 font-mono">{user?.email}</p>
+          </div>
 
-        {/* Modal Header */}
-        <div className="text-center mb-5">
-          <h3 className="text-lg font-black text-slate-950">
-            {lang === 'bn' ? 'প্রোফাইল সেটিংস' : 'User Profile'}
-          </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {lang === 'bn' ? 'আপনার তথ্য ও প্রোফাইল ছবি আপডেট করুন' : 'Manage your identity and details'}
-          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        {/* Alerts */}
-        {errorMessage && (
-          <div className="mb-4 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-[#E11D48] text-xs font-bold flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" />
-            <span>{errorMessage}</span>
+        {errorMsg && (
+          <div className="mt-4 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-[#E11D48] text-xs font-bold">
+            {errorMsg}
           </div>
         )}
 
-        {successMessage && (
-          <div className="mb-4 p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold flex items-center gap-2">
+        {successMsg && (
+          <div className="mt-4 p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-            <span>{successMessage}</span>
+            <span>{successMsg}</span>
           </div>
         )}
 
-        {/* Avatar Section */}
-        <div className="flex flex-col items-center mb-5">
-          <div className="relative">
-            <div className="w-20 h-20 rounded-full border-2 border-[#E11D48] p-0.5 shadow-md overflow-hidden bg-rose-50 flex items-center justify-center">
+        {/* Chobi (Avatar) Upload Section */}
+        <div className="flex flex-col items-center justify-center pt-4 pb-2">
+          <div className="relative group">
+            <div className="w-24 h-24 rounded-full border-4 border-rose-100 shadow-md overflow-hidden bg-slate-100 flex items-center justify-center">
               {avatarUrl ? (
-                <img 
-                  src={avatarUrl} 
-                  alt="Avatar" 
-                  className="w-full h-full object-cover rounded-full" 
-                  onError={() => setAvatarUrl('')}
-                />
+                <img src={avatarUrl} alt="User Avatar" className="w-full h-full object-cover" />
               ) : (
-                <User className="w-10 h-10 text-rose-300" />
+                <span className="text-2xl font-black text-slate-700 uppercase">
+                  {user?.email?.charAt(0) || 'U'}
+                </span>
               )}
             </div>
 
             <button
               type="button"
+              disabled={uploadingImage}
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="absolute bottom-0 right-0 p-2 rounded-full bg-[#E11D48] hover:bg-[#BE123C] text-white shadow-md transition disabled:opacity-50 cursor-pointer"
-              title={lang === 'bn' ? 'ছবি পরিবর্তন' : 'Change Avatar'}
+              className="absolute bottom-0 right-0 p-2 rounded-full bg-[#E11D48] hover:bg-[#BE123C] text-white shadow-lg cursor-pointer transition active:scale-95 disabled:opacity-50"
+              title="Change Profile Photo"
             >
-              {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+              {uploadingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
             </button>
           </div>
 
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleAvatarUpload}
-            accept="image/*"
-            className="hidden"
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleImageUpload} 
+            accept="image/*" 
+            className="hidden" 
           />
-          <span className="text-[11px] font-semibold text-slate-400 mt-2">
-            {uploading ? (lang === 'bn' ? 'ছবি আপলোড হচ্ছে...' : 'Uploading...') : (lang === 'bn' ? 'ছবি পরিবর্তন করতে ক্যামেরা আইকনে চাপুন' : 'Click camera to change photo')}
+          <span className="text-[11px] font-bold text-slate-400 mt-2">
+            {uploadingImage ? 'Uploading photo...' : 'Click camera icon to change photo'}
           </span>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSaveProfile} className="space-y-3.5">
+        <form onSubmit={handleSubmit} className="space-y-4 mt-3">
+          {/* Full Name */}
           <div>
-            <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-              {lang === 'bn' ? 'পূর্ণ নাম' : 'Full Name'}
+            <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+              Full Name
             </label>
             <div className="relative">
-              <User className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
+              <User className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
               <input
                 type="text"
                 required
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="e.g. Omar Faruk"
-                className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-[#E2E8F0] rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                placeholder="Your official name"
+                className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
               />
             </div>
           </div>
 
+          {/* Email (Read Only) */}
           <div>
-            <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-              {lang === 'bn' ? 'ইমেইল (অপরিবর্তনযোগ্য)' : 'Email'}
+            <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+              Registered Email
             </label>
             <div className="relative">
-              <Mail className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
+              <Mail className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
               <input
                 type="email"
                 disabled
                 value={user?.email || ''}
-                className="w-full pl-10 pr-3 py-2 bg-slate-100 border border-slate-200 rounded-xl text-xs font-semibold text-slate-500 cursor-not-allowed"
+                className="w-full pl-10 pr-3 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-xs font-mono font-medium text-slate-500 cursor-not-allowed"
               />
             </div>
           </div>
 
+          {/* Phone */}
           <div>
-            <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-              {lang === 'bn' ? 'ফোন নম্বর' : 'Phone'}
+            <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+              Phone Number
             </label>
             <div className="relative">
-              <Phone className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
+              <Phone className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
               <input
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="+880 1XXXXXXXXX"
-                className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-[#E2E8F0] rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
               />
             </div>
           </div>
 
+          {/* Address */}
           <div>
-            <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-              {lang === 'bn' ? 'ঠিকানা' : 'Address'}
+            <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+              Address / Corporate Office
             </label>
             <div className="relative">
-              <MapPin className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
+              <MapPin className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
               <input
                 type="text"
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
-                placeholder="e.g. Dhaka, Bangladesh"
-                className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-[#E2E8F0] rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                placeholder="Dhaka, Bangladesh"
+                className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
               />
             </div>
           </div>
 
-          <div className="pt-2">
+          {/* Password Change Box */}
+          <div className="pt-3 border-t border-slate-100 space-y-3">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-[#E11D48]" />
+              <span>Change Password (Optional)</span>
+            </span>
+
+            <div>
+              <div className="relative">
+                <KeyRound className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Enter new password"
+                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {newPassword && (
+              <div>
+                <div className="relative">
+                  <KeyRound className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm new password"
+                    className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Submit Action */}
+          <div className="pt-3 flex items-center justify-end gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="py-2.5 px-4 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+            >
+              Cancel
+            </button>
             <button
               type="submit"
-              disabled={saving}
-              className="w-full py-3 bg-[#E11D48] hover:bg-[#BE123C] text-white font-bold rounded-xl text-xs shadow-md shadow-rose-500/25 transition disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+              disabled={loading || uploadingImage}
+              className="py-2.5 px-5 bg-[#E11D48] hover:bg-[#BE123C] text-white rounded-xl text-xs font-bold shadow-md shadow-rose-950/15 disabled:opacity-50 cursor-pointer active:scale-95 transition"
             >
-              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>
-                {saving
-                  ? (lang === 'bn' ? 'সংরক্ষণ হচ্ছে...' : 'Saving...')
-                  : (lang === 'bn' ? 'পরিবর্তন সংরক্ষণ করুন' : 'Save Changes')}
-              </span>
+              {loading ? 'Saving...' : 'Save Profile'}
             </button>
           </div>
         </form>
+
       </div>
     </div>
   );
-
-  return createPortal(modalContent, document.body);
 }

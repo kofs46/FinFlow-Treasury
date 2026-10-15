@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { supabase } from './supabaseClient';
 import { useAuth } from './context/AuthContext';
 import { useLang } from './context/LangContext';
 import Navbar from './components/layout/Navbar';
 import BottomNav from './components/layout/BottomNav';
+import SidebarDrawer from './components/layout/SidebarDrawer';
 import OverviewCards from './components/dashboard/OverviewCards';
 import AccountsModule from './components/accounts/AccountsModule';
 import ProjectsModule from './components/projects/ProjectsModule';
@@ -16,9 +17,6 @@ import TransferModal from './components/accounts/TransferModal';
 import AddTransactionModal from './components/statements/AddTransactionModal';
 import ContactModal from './components/common/ContactModal';
 import ProfileModal from './components/common/ProfileModal';
-import DriveBackupModal from './components/common/DriveBackupModal';
-import MandatoryDriveModal from './components/common/MandatoryDriveModal';
-import { silentSyncToDrive } from './services/googleDriveSilentSync';
 import { 
   Shield, 
   KeyRound, 
@@ -37,22 +35,20 @@ export default function App() {
   const { t } = useLang();
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  // Modals
+  // Sidebar Drawer & Modals State
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddAccountOpen, setIsAddAccountOpen] = useState(false);
   const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [isAddTxOpen, setIsAddTxOpen] = useState(false);
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
 
-  // Mandatory Google Drive Link State
-  const [isDriveLinked, setIsDriveLinked] = useState(() => {
-    return localStorage.getItem('gdrive_connected') === 'true';
-  });
-
-  // Global State Refresh
+  // Global Refresh Key
   const [refreshKey, setRefreshKey] = useState(0);
-  const handleDataRefresh = () => setRefreshKey((prev) => prev + 1);
+
+  const handleDataRefresh = () => {
+    setRefreshKey((prev) => prev + 1);
+  };
 
   // Auth States
   const [authMode, setAuthMode] = useState('login');
@@ -71,61 +67,7 @@ export default function App() {
   const [successMsg, setSuccessMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Full Treasury Data State for Google Drive Silent Auto-Backup
-  const [currentTreasuryPayload, setCurrentTreasuryPayload] = useState(null);
-
-  useEffect(() => {
-    if (user) {
-      loadFullDataForBackup();
-    }
-  }, [user, refreshKey]);
-
-  const loadFullDataForBackup = async () => {
-    try {
-      const [{ data: acc }, { data: tx }, { data: debts }, { data: proj }] = await Promise.all([
-        supabase.from('accounts').select('*').eq('user_id', user.id),
-        supabase.from('transactions').select('*').eq('user_id', user.id),
-        supabase.from('debts').select('*').eq('user_id', user.id),
-        supabase.from('projects').select('*').eq('user_id', user.id)
-      ]);
-
-      const payload = {
-        accounts: acc || [],
-        transactions: tx || [],
-        debts: debts || [],
-        projects: proj || [],
-        syncedAt: new Date().toISOString()
-      };
-
-      setCurrentTreasuryPayload(payload);
-
-      // Silent Auto-Sync Check
-      const isConnected = localStorage.getItem('gdrive_connected') === 'true';
-      const lastSyncStr = localStorage.getItem('gdrive_last_sync');
-      const freqDays = parseInt(localStorage.getItem('gdrive_sync_freq') || '3', 10);
-
-      if (isConnected) {
-        let shouldSync = false;
-        if (!lastSyncStr) {
-          shouldSync = true;
-        } else {
-          const daysSince = (new Date() - new Date(lastSyncStr)) / (1000 * 60 * 60 * 24);
-          if (daysSince >= freqDays) shouldSync = true;
-        }
-
-        if (shouldSync) {
-          silentSyncToDrive(payload).then((res) => {
-            if (res.success) {
-              console.log('[FinFlow] Silent periodic backup auto-saved to Google Drive.');
-            }
-          });
-        }
-      }
-    } catch (err) {
-      console.error('Error fetching backup snapshot:', err);
-    }
-  };
-
+  // Auth Handlers
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -220,7 +162,6 @@ export default function App() {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-rose-50/60 via-[#FAFAFA] to-orange-50/40 px-4 py-10 text-slate-900 overflow-x-hidden">
         <div className="w-full max-w-md rounded-3xl bg-white border border-[#F3D7D9] p-6 sm:p-8 shadow-2xl shadow-rose-900/10">
-          
           <div className="text-center mb-6">
             <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-white mb-3 shadow-md shadow-rose-900/10 ring-4 ring-rose-100 border border-[#F3D7D9]">
               <img 
@@ -449,22 +390,28 @@ export default function App() {
   return (
     <div className="h-screen w-full bg-[#FAFAFA] text-slate-900 flex flex-col font-sans overflow-hidden">
       
-      {/* 1. TOP NAVBAR (BAM PASHER MENU THEKEI SHOB CONTROL KORA JABE) */}
+      {/* 1. TOP NAVBAR */}
       <div className="w-full shrink-0 z-40 bg-white border-b border-[#F3D7D9] print:hidden">
         <Navbar 
-          activeTab={activeTab}
-          onNavigateTab={(tab) => setActiveTab(tab)}
+          onToggleSidebar={() => setIsSidebarOpen(true)}
           onNavigateHome={() => setActiveTab('dashboard')}
           onOpenAddTx={() => setIsAddTxOpen(true)}
-          onOpenDriveSync={() => setIsDriveModalOpen(true)}
-          onOpenContact={() => setIsContactOpen(true)}
           onOpenProfile={() => setIsProfileOpen(true)}
         />
       </div>
 
-      {/* 2. FULL-WIDTH CLEAN WORKSPACE (EXTRA SIDEBAR PURAPURI REMOVED) */}
+      {/* 2. SIDEBAR DRAWER (Support & Profile Integrated) */}
+      <SidebarDrawer
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        activeTab={activeTab}
+        onSelectTab={(tab) => setActiveTab(tab)}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        onOpenSupport={() => setIsContactOpen(true)}
+      />
+
+      {/* 3. MAIN WORKSPACE */}
       <main className="flex-1 w-full overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8 print:p-0 print:m-0 print:overflow-visible">
-        
         <div className="flex items-center justify-between mb-6 print:hidden">
           <div>
             <h2 className="text-xl md:text-2xl font-black text-slate-950 tracking-tight">
@@ -485,6 +432,7 @@ export default function App() {
           </button>
         </div>
 
+        {/* Modules */}
         {activeTab === 'dashboard' && (
           <OverviewCards 
             onOpenTransfer={() => setIsTransferOpen(true)} 
@@ -524,14 +472,14 @@ export default function App() {
         )}
       </main>
 
-      {/* 3. MOBILE ONLY BOTTOM DOCK NAVIGATION (DESKTOP/WEB-E AUTOMATIC HIDE THAKBE) */}
+      {/* 4. MOBILE BOTTOM NAVIGATION */}
       <BottomNav 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
         onOpenAddTx={() => setIsAddTxOpen(true)} 
       />
 
-      {/* 4. MODALS */}
+      {/* 5. APPLICATION MODALS */}
       <ProfileModal
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
@@ -559,28 +507,6 @@ export default function App() {
         isOpen={isContactOpen}
         onClose={() => setIsContactOpen(false)}
       />
-
-      <DriveBackupModal
-        isOpen={isDriveModalOpen}
-        onClose={() => setIsDriveModalOpen(false)}
-        currentTreasuryData={currentTreasuryPayload}
-        onRestoreCompleted={(restoredData) => {
-          console.log('[FinFlow] Restored Data from Drive:', restoredData);
-          handleDataRefresh();
-        }}
-      />
-
-      {/* 5. MANDATORY GOOGLE DRIVE ONBOARDING GUARD */}
-      {!isDriveLinked && user && (
-        <MandatoryDriveModal 
-          initialData={currentTreasuryPayload}
-          onConnected={() => {
-            setIsDriveLinked(true);
-            handleDataRefresh();
-          }}
-        />
-      )}
-
     </div>
   );
 }
