@@ -3,7 +3,6 @@ import { supabase } from './supabaseClient';
 import { useAuth } from './context/AuthContext';
 import { useLang } from './context/LangContext';
 import Navbar from './components/layout/Navbar';
-import Sidebar from './components/layout/Sidebar';
 import BottomNav from './components/layout/BottomNav';
 import OverviewCards from './components/dashboard/OverviewCards';
 import AccountsModule from './components/accounts/AccountsModule';
@@ -18,6 +17,7 @@ import AddTransactionModal from './components/statements/AddTransactionModal';
 import ContactModal from './components/common/ContactModal';
 import ProfileModal from './components/common/ProfileModal';
 import DriveBackupModal from './components/common/DriveBackupModal';
+import MandatoryDriveModal from './components/common/MandatoryDriveModal';
 import { silentSyncToDrive } from './services/googleDriveSilentSync';
 import { 
   Shield, 
@@ -34,7 +34,7 @@ import {
 
 export default function App() {
   const { user, loading, signIn, signUp } = useAuth();
-  const { t, lang } = useLang();
+  const { t } = useLang();
   const [activeTab, setActiveTab] = useState('dashboard');
 
   // Modals
@@ -44,6 +44,11 @@ export default function App() {
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
+
+  // Mandatory Google Drive Link State
+  const [isDriveLinked, setIsDriveLinked] = useState(() => {
+    return localStorage.getItem('gdrive_connected') === 'true';
+  });
 
   // Global State Refresh
   const [refreshKey, setRefreshKey] = useState(0);
@@ -94,7 +99,7 @@ export default function App() {
 
       setCurrentTreasuryPayload(payload);
 
-      // Silent Auto-Sync Check (WhatsApp-er moto nirdishto din por por background-e sync)
+      // Silent Auto-Sync Check
       const isConnected = localStorage.getItem('gdrive_connected') === 'true';
       const lastSyncStr = localStorage.getItem('gdrive_last_sync');
       const freqDays = parseInt(localStorage.getItem('gdrive_sync_freq') || '3', 10);
@@ -129,12 +134,12 @@ export default function App() {
 
     if (authMode === 'register') {
       if (password !== confirmPassword) {
-        setErrorMsg(lang === 'bn' ? 'পাসওয়ার্ড দুটি মেলেনি।' : 'Passwords do not match.');
+        setErrorMsg('Passwords do not match.');
         setSubmitting(false);
         return;
       }
       if (recoveryPin.length !== 6 || isNaN(recoveryPin)) {
-        setErrorMsg(lang === 'bn' ? 'সিকিউরিটি পিন অবশ্যই ৬ ডিজিটের হতে হবে।' : 'Security PIN must be exactly 6 digits.');
+        setErrorMsg('Security PIN must be exactly 6 digits.');
         setSubmitting(false);
         return;
       }
@@ -142,11 +147,7 @@ export default function App() {
       if (res?.error) {
         setErrorMsg(res.error.message);
       } else {
-        setSuccessMsg(
-          lang === 'bn' 
-            ? 'অ্যাকাউন্ট তৈরি সফল হয়েছে! অনুগ্রহ করে ইমেইল কনফার্ম করুন।' 
-            : 'Registration successful! Please confirm your email.'
-        );
+        setSuccessMsg('Registration successful! Please confirm your email.');
         setTimeout(() => setAuthMode('login'), 3500);
       }
     } else if (authMode === 'login') {
@@ -172,7 +173,7 @@ export default function App() {
         .single();
 
       if (profileErr || !profileData) {
-        setErrorMsg(lang === 'bn' ? 'ভুল ৬ ডিজিট রিকভারি পিন।' : 'Invalid 6-digit recovery PIN.');
+        setErrorMsg('Invalid 6-digit recovery PIN.');
         setSubmitting(false);
         return;
       }
@@ -184,7 +185,7 @@ export default function App() {
       if (updateErr) {
         setErrorMsg(updateErr.message);
       } else {
-        setSuccessMsg(lang === 'bn' ? 'পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে!' : 'Password reset successfully!');
+        setSuccessMsg('Password reset successfully!');
         setTimeout(() => {
           setAuthMode('login');
           setSuccessMsg('');
@@ -194,7 +195,7 @@ export default function App() {
         }, 2000);
       }
     } catch (err) {
-      setErrorMsg(lang === 'bn' ? 'অনুরোধটি সম্পন্ন করা যায়নি।' : 'Error processing request.');
+      setErrorMsg('Error processing request.');
     } finally {
       setSubmitting(false);
     }
@@ -220,7 +221,6 @@ export default function App() {
       <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-rose-50/60 via-[#FAFAFA] to-orange-50/40 px-4 py-10 text-slate-900 overflow-x-hidden">
         <div className="w-full max-w-md rounded-3xl bg-white border border-[#F3D7D9] p-6 sm:p-8 shadow-2xl shadow-rose-900/10">
           
-          {/* LOGIN HERO BRAND LOGO WITH PNG */}
           <div className="text-center mb-6">
             <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-white mb-3 shadow-md shadow-rose-900/10 ring-4 ring-rose-100 border border-[#F3D7D9]">
               <img 
@@ -449,102 +449,89 @@ export default function App() {
   return (
     <div className="h-screen w-full bg-[#FAFAFA] text-slate-900 flex flex-col font-sans overflow-hidden">
       
-      {/* 1. TOP NAVBAR - PERMANENTLY FIXED & NEVER VANISHES */}
-      <div className="w-full shrink-0 z-50 bg-white border-b border-[#F3D7D9] print:hidden">
+      {/* 1. TOP NAVBAR (BAM PASHER MENU THEKEI SHOB CONTROL KORA JABE) */}
+      <div className="w-full shrink-0 z-40 bg-white border-b border-[#F3D7D9] print:hidden">
         <Navbar 
-          onOpenContact={() => setIsContactOpen(true)}
-          onOpenProfile={() => setIsProfileOpen(true)}
-          onNavigateHome={() => setActiveTab('dashboard')}
+          activeTab={activeTab}
           onNavigateTab={(tab) => setActiveTab(tab)}
+          onNavigateHome={() => setActiveTab('dashboard')}
           onOpenAddTx={() => setIsAddTxOpen(true)}
           onOpenDriveSync={() => setIsDriveModalOpen(true)}
+          onOpenContact={() => setIsContactOpen(true)}
+          onOpenProfile={() => setIsProfileOpen(true)}
         />
       </div>
 
-      {/* 2. BODY SPLIT AREA */}
-      <div className="flex flex-1 w-full overflow-hidden">
+      {/* 2. FULL-WIDTH CLEAN WORKSPACE (EXTRA SIDEBAR PURAPURI REMOVED) */}
+      <main className="flex-1 w-full overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8 print:p-0 print:m-0 print:overflow-visible">
         
-        {/* SIDEBAR */}
-        <div className="print:hidden shrink-0 h-full">
-          <Sidebar 
-            activeTab={activeTab} 
-            setActiveTab={setActiveTab} 
-            onOpenContact={() => setIsContactOpen(true)}
-          />
-        </div>
-
-        {/* SCROLLABLE MAIN CANVAS */}
-        <main className="flex-1 min-w-0 h-full overflow-y-auto p-4 sm:p-6 lg:p-8 pb-28 md:pb-8 print:p-0 print:m-0 print:overflow-visible">
-          
-          <div className="flex items-center justify-between mb-6 print:hidden">
-            <div>
-              <h2 className="text-xl md:text-2xl font-black text-slate-950 tracking-tight">
-                {t(activeTab)}
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5 font-semibold">
-                {t('subTitle')}
-              </p>
-            </div>
-
-            {/* Quick Action Dock */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsAddTxOpen(true)}
-                className="py-2 px-3.5 bg-[#E11D48] hover:bg-[#BE123C] text-white rounded-xl text-xs font-bold shadow-md shadow-rose-500/20 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
-              >
-                <Plus className="w-4 h-4" />
-                <span>{lang === 'bn' ? 'লেনদেন যোগ করুন' : '+ Add Transaction'}</span>
-              </button>
-            </div>
+        <div className="flex items-center justify-between mb-6 print:hidden">
+          <div>
+            <h2 className="text-xl md:text-2xl font-black text-slate-950 tracking-tight">
+              {t(activeTab)}
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5 font-semibold">
+              {t('subTitle')}
+            </p>
           </div>
 
-          {activeTab === 'dashboard' && (
-            <OverviewCards 
-              onOpenTransfer={() => setIsTransferOpen(true)} 
-              onOpenAddAccount={() => setIsAddAccountOpen(true)} 
-              refreshTrigger={refreshKey}
-              setActiveTab={setActiveTab}
-            />
-          )}
+          <button
+            type="button"
+            onClick={() => setIsAddTxOpen(true)}
+            className="py-2.5 px-4 bg-[#E11D48] hover:bg-[#BE123C] text-white rounded-xl text-xs font-bold shadow-md shadow-rose-500/20 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Add Transaction</span>
+          </button>
+        </div>
 
-          {activeTab === 'accounts' && (
-            <AccountsModule 
-              onOpenAddAccount={() => setIsAddAccountOpen(true)}
-              onOpenTransfer={() => setIsTransferOpen(true)}
-              refreshTrigger={refreshKey}
-              onDataChange={handleDataRefresh}
-            />
-          )}
+        {activeTab === 'dashboard' && (
+          <OverviewCards 
+            onOpenTransfer={() => setIsTransferOpen(true)} 
+            onOpenAddAccount={() => setIsAddAccountOpen(true)} 
+            refreshTrigger={refreshKey}
+            setActiveTab={setActiveTab}
+          />
+        )}
 
-          {activeTab === 'projects' && (
-            <ProjectsModule onDataChange={handleDataRefresh} />
-          )}
+        {activeTab === 'accounts' && (
+          <AccountsModule 
+            onOpenAddAccount={() => setIsAddAccountOpen(true)}
+            onOpenTransfer={() => setIsTransferOpen(true)}
+            refreshTrigger={refreshKey}
+            onDataChange={handleDataRefresh}
+          />
+        )}
 
-          {activeTab === 'debts' && (
-            <DebtsModule onDataChange={handleDataRefresh} />
-          )}
+        {activeTab === 'projects' && (
+          <ProjectsModule onDataChange={handleDataRefresh} />
+        )}
 
-          {activeTab === 'reconcile' && (
-            <ComplianceModule onDataChange={handleDataRefresh} />
-          )}
+        {activeTab === 'debts' && (
+          <DebtsModule onDataChange={handleDataRefresh} />
+        )}
 
-          {activeTab === 'analytics' && (
-            <AnalyticsModule />
-          )}
+        {activeTab === 'reconcile' && (
+          <ComplianceModule onDataChange={handleDataRefresh} />
+        )}
 
-          {activeTab === 'statements' && (
-            <StatementsModule onDataChange={handleDataRefresh} />
-          )}
-        </main>
-      </div>
+        {activeTab === 'analytics' && (
+          <AnalyticsModule />
+        )}
 
-      {/* MOBILE BOTTOM NAVIGATION */}
-      <div className="w-full shrink-0 print:hidden md:hidden z-40 bg-white border-t border-[#F3D7D9]">
-        <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
-      </div>
+        {activeTab === 'statements' && (
+          <StatementsModule onDataChange={handleDataRefresh} />
+        )}
+      </main>
 
-      {/* GLOBAL MODALS */}
+      {/* 3. MOBILE ONLY BOTTOM DOCK NAVIGATION (DESKTOP/WEB-E AUTOMATIC HIDE THAKBE) */}
+      <BottomNav 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        onOpenAddTx={() => setIsAddTxOpen(true)} 
+      />
+
+      {/* 4. MODALS */}
       <ProfileModal
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
@@ -573,7 +560,6 @@ export default function App() {
         onClose={() => setIsContactOpen(false)}
       />
 
-      {/* WHATSAPP-STYLE SILENT GOOGLE DRIVE BACKUP & RESTORE MODAL */}
       <DriveBackupModal
         isOpen={isDriveModalOpen}
         onClose={() => setIsDriveModalOpen(false)}
@@ -583,6 +569,18 @@ export default function App() {
           handleDataRefresh();
         }}
       />
+
+      {/* 5. MANDATORY GOOGLE DRIVE ONBOARDING GUARD */}
+      {!isDriveLinked && user && (
+        <MandatoryDriveModal 
+          initialData={currentTreasuryPayload}
+          onConnected={() => {
+            setIsDriveLinked(true);
+            handleDataRefresh();
+          }}
+        />
+      )}
+
     </div>
   );
 }

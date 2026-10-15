@@ -1,50 +1,65 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../context/AuthContext';
-import { useLang } from '../../context/LangContext';
 import { formatBDT } from '../../utils/currency';
-import { BrandLogo } from '../common/BrandLogos';
 import { 
-  Wallet, 
-  Repeat, 
   Plus, 
-  Calendar, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  FileText, 
+  ArrowRightLeft, 
+  Copy, 
+  Check, 
+  Wifi, 
+  Eye, 
+  EyeOff, 
+  Trash2,
+  Edit2,
+  Clock,
   X,
-  Search,
-  Filter
+  Layers,
+  ArrowUpRight,
+  ArrowDownLeft,
+  FileSpreadsheet
 } from 'lucide-react';
 
-export default function AccountsModule({ onOpenAddAccount, onOpenTransfer, refreshTrigger, onDataChange }) {
+export default function AccountsModule({ 
+  onOpenAddAccount, 
+  onOpenTransfer, 
+  refreshTrigger, 
+  onDataChange 
+}) {
   const { user } = useAuth();
-  const { lang } = useLang();
-
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [copiedId, setCopiedId] = useState(null);
+  const [showBalance, setShowBalance] = useState(true);
 
-  // Specific Account Statement Modal State
-  const [statementAccount, setStatementAccount] = useState(null);
-  const [accountTransactions, setAccountTransactions] = useState([]);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [txSearch, setTxSearch] = useState('');
+  // History & Edit Modals State
+  const [selectedAccountForHistory, setSelectedAccountForHistory] = useState(null);
+  const [historyTransactions, setHistoryTransactions] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const [editingAccount, setEditingAccount] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editNumber, setEditNumber] = useState('');
+  const [editType, setEditType] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   useEffect(() => {
-    if (user) loadAccounts();
+    if (user) {
+      fetchAccounts();
+    }
   }, [user, refreshTrigger]);
 
-  const loadAccounts = async () => {
+  const fetchAccounts = async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from('accounts')
         .select('*')
         .eq('user_id', user.id)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false });
 
-      if (!error && data) setAccounts(data);
+      if (error) throw error;
+      setAccounts(data || []);
     } catch (err) {
       console.error('Error fetching accounts:', err);
     } finally {
@@ -52,204 +67,434 @@ export default function AccountsModule({ onOpenAddAccount, onOpenTransfer, refre
     }
   };
 
-  const handleOpenAccountStatement = async (acc) => {
-    setStatementAccount(acc);
-    setStartDate('');
-    setEndDate('');
-    setTxSearch('');
-
-    const { data } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('account_id', acc.id)
-      .order('transaction_date', { ascending: false });
-
-    if (data) setAccountTransactions(data);
+  const handleCopy = (text, id) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const filteredAccountTx = accountTransactions.filter((tx) => {
-    const d = tx.transaction_date || tx.created_at?.substring(0, 10);
-    if (startDate && d < startDate) return false;
-    if (endDate && d > endDate) return false;
-    if (txSearch) {
-      const q = txSearch.toLowerCase();
-      const n = (tx.notes || '').toLowerCase();
-      const c = (tx.category || '').toLowerCase();
-      if (!n.includes(q) && !c.includes(q)) return false;
-    }
-    return true;
-  });
+  const handleDeleteAccount = async (id, accountName) => {
+    const confirmDelete = window.confirm(`Are you sure you want to delete "${accountName}"?`);
+    if (!confirmDelete) return;
 
-  const totalLiquidity = accounts.reduce((acc, a) => acc + Number(a.balance), 0);
+    try {
+      const { error } = await supabase
+        .from('accounts')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      if (onDataChange) onDataChange();
+      fetchAccounts();
+    } catch (err) {
+      alert(`Could not delete vault: ${err.message}`);
+    }
+  };
+
+  // Open History Ledger for specific card
+  const handleOpenHistory = async (account) => {
+    setSelectedAccountForHistory(account);
+    setHistoryLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('account_id', account.id)
+        .order('transaction_date', { ascending: false });
+
+      if (error) throw error;
+      setHistoryTransactions(data || []);
+    } catch (err) {
+      console.error('Error fetching account history:', err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  // Open Edit Modal
+  const handleOpenEdit = (account) => {
+    setEditingAccount(account);
+    setEditName(account.account_name || '');
+    setEditNumber(account.account_number || '');
+    setEditType(account.account_type || 'bank');
+  };
+
+  // Save Account Edit
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editingAccount) return;
+    setEditSubmitting(true);
+
+    try {
+      const cleanNumber = editNumber.trim().replace(/\s+/g, '');
+      const { error } = await supabase
+        .from('accounts')
+        .update({
+          account_name: editName.trim(),
+          account_number: cleanNumber,
+          account_type: editType
+        })
+        .eq('id', editingAccount.id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      setEditingAccount(null);
+      if (onDataChange) onDataChange();
+      fetchAccounts();
+    } catch (err) {
+      alert(`Error updating account: ${err.message}`);
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
+  // Visual Theme Matching
+  const getCardTheme = (type = '', name = '') => {
+    const term = `${name} ${type}`.toLowerCase();
+
+    if (term.includes('bkash')) {
+      return {
+        bg: 'from-[#be123c] via-[#e11d48] to-[#fb7185]',
+        brand: 'bKash Platinum',
+        typeBadge: 'DEBIT',
+        network: 'VISA'
+      };
+    }
+    if (term.includes('nagad')) {
+      return {
+        bg: 'from-[#c2410c] via-[#ea580c] to-[#f97316]',
+        brand: 'Nagad Priority',
+        typeBadge: 'PREPAID',
+        network: 'VISA'
+      };
+    }
+    if (term.includes('upay')) {
+      return {
+        bg: 'from-[#0369a1] via-[#0284c7] to-[#38bdf8]',
+        brand: 'Upay Infinity',
+        typeBadge: 'DEBIT',
+        network: 'VISA'
+      };
+    }
+    if (term.includes('cash')) {
+      return {
+        bg: 'from-[#064e3b] via-[#047857] to-[#10b981]',
+        brand: 'Petty Cash Reserve',
+        typeBadge: 'DIRECT',
+        network: 'TREASURY'
+      };
+    }
+    return {
+      bg: 'from-[#090d16] via-[#1e293b] to-[#334155]',
+      brand: 'Corporate Vault',
+      typeBadge: 'SIGNATURE',
+      network: 'VISA'
+    };
+  };
+
+  // Real Account Number Display Formatter (Phone Number or Bank Account)
+  const renderRealAccountNumber = (rawNum, type = '') => {
+    if (!rawNum) {
+      if (type === 'cash') return 'LIQUID CASH VAULT';
+      return 'NO NUMBER RECORDED';
+    }
+    const clean = String(rawNum).trim().replace(/\s+/g, '');
+    
+    // Bangladeshi 11 digit Mobile Number (e.g., 0171 234 5678)
+    if (clean.length === 11) {
+      return `${clean.slice(0, 4)} ${clean.slice(4, 7)} ${clean.slice(7)}`;
+    }
+
+    // 16 digit ba regular bank account format (4-chunk groups)
+    return clean.match(/.{1,4}/g)?.join(' ') || clean;
+  };
+
+  const totalLiquidity = accounts.reduce((acc, curr) => acc + Number(curr.balance || 0), 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 select-none font-sans">
       
-      {/* Top Header Card */}
-      <div className="bg-white border border-[#F3D7D9] rounded-3xl p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* 1. TOP HEADER SUMMARY */}
+      <div className="rounded-3xl bg-white border border-[#F3D7D9] p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="text-[10px] font-black uppercase tracking-wider text-[#E11D48] px-2.5 py-0.5 rounded-full bg-rose-50 border border-rose-200">
-            Vault Portfolio
-          </span>
-          <h3 className="text-xl font-black text-slate-900 mt-1">
-            {lang === 'bn' ? 'অ্যাকাউন্ট ও ওয়ালেট ভল্ট' : 'Accounts & Liquidity Vaults'}
-          </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {lang === 'bn' ? 'সকল ব্যাংক, নগদ ও বিকাশ ওয়ালেটের স্বতন্ত্র হিসাব' : 'Manage balances and view individual date-by-date statements'}
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-0.5 rounded-full bg-rose-50 text-[#E11D48] text-[10px] font-black uppercase tracking-wider border border-rose-200">
+              Vault Portfolio
+            </span>
+            <span className="text-xs font-bold text-slate-400">
+              • {accounts.length} Active Accounts
+            </span>
+          </div>
+          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight mt-1">
+            Accounts & Liquidity Vaults
+          </h1>
+          <p className="text-xs text-slate-400 font-medium">
+            Manage physical reserves, digital wallets & institutional cards
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3">
+          <div className="text-right hidden sm:block">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+              Cumulative Reserves
+            </span>
+            <span className="text-lg font-black font-mono text-slate-900">
+              {showBalance ? formatBDT(totalLiquidity, 'en') : '••••••••'}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowBalance(!showBalance)}
+            className="p-2.5 rounded-2xl bg-slate-50 hover:bg-rose-50 border border-slate-200 text-slate-600 hover:text-[#E11D48] transition cursor-pointer"
+            title={showBalance ? 'Mask Balances' : 'Show Balances'}
+          >
+            {showBalance ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+
           <button
             type="button"
             onClick={onOpenTransfer}
-            className="py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            className="py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
           >
-            <Repeat className="w-3.5 h-3.5" />
-            <span>{lang === 'bn' ? 'ফান্ড ট্রান্সফার' : 'Transfer Funds'}</span>
+            <ArrowRightLeft className="w-3.5 h-3.5" />
+            <span>Transfer Funds</span>
           </button>
 
           <button
             type="button"
             onClick={onOpenAddAccount}
-            className="py-2.5 px-4 bg-[#E11D48] hover:bg-[#BE123C] text-white rounded-xl text-xs font-bold shadow-md shadow-rose-500/20 transition flex items-center gap-1.5 cursor-pointer"
+            className="py-2.5 px-4 bg-[#E11D48] hover:bg-[#BE123C] text-white rounded-2xl text-xs font-bold shadow-md shadow-rose-950/15 flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>{lang === 'bn' ? 'নতুন ওয়ালেট' : 'Add Vault'}</span>
+            <span>+ Add Vault</span>
           </button>
         </div>
       </div>
 
-      {/* Account Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {accounts.map((acc) => (
-          <div
-            key={acc.id}
-            className="rounded-3xl bg-white border border-[#F3D7D9] p-5 shadow-xs hover:border-[#E11D48] hover:shadow-md transition flex flex-col justify-between"
-          >
-            <div>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <BrandLogo name={acc.account_name} type={acc.account_type} className="w-11 h-11" />
-                  <div>
-                    <h4 className="text-sm font-black text-slate-900 truncate max-w-[170px]" title={acc.account_name}>
-                      {acc.account_name}
-                    </h4>
-                    <span className="text-[10px] font-black uppercase text-slate-400">
-                      {acc.account_type}
-                    </span>
+      {/* 2. VISA CARDS GRID */}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[1, 2, 3].map((n) => (
+            <div key={n} className="h-64 rounded-3xl bg-slate-100 animate-pulse border border-slate-200" />
+          ))}
+        </div>
+      ) : accounts.length === 0 ? (
+        <div className="rounded-3xl bg-white border border-[#F3D7D9] p-12 text-center space-y-3">
+          <Layers className="w-10 h-10 mx-auto text-[#E11D48]" />
+          <h3 className="text-base font-black text-slate-900">No Cards Issued</h3>
+          <p className="text-xs text-slate-400">Click "+ Add Vault" above to issue your first bank card or wallet.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {accounts.map((acc) => {
+            const theme = getCardTheme(acc.account_type, acc.account_name);
+            const balanceVal = Number(acc.balance || 0);
+
+            return (
+              <div key={acc.id} className="flex flex-col gap-2">
+                
+                {/* THE VISA CARD */}
+                <div
+                  className={`relative w-full aspect-[1.586/1] min-h-[225px] rounded-3xl bg-gradient-to-br ${theme.bg} p-6 text-white shadow-xl shadow-slate-950/15 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between overflow-hidden border border-white/10`}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-white/15 pointer-events-none" />
+                  <div className="absolute -right-20 -top-20 w-52 h-52 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+
+                  {/* Top Row: Brand + Type Badge + Quick Edit/Delete */}
+                  <div className="relative z-10 flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-black tracking-wider uppercase text-white/95 leading-none">
+                        {theme.brand}
+                      </h4>
+                      <span className="text-[9px] font-bold tracking-widest text-white/70 uppercase">
+                        {acc.account_type || 'Commercial Vault'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 rounded-md bg-white/20 backdrop-blur-md text-[9px] font-black uppercase tracking-widest border border-white/20">
+                        {theme.typeBadge}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEdit(acc)}
+                        className="p-1.5 rounded-lg bg-black/20 hover:bg-white/20 text-white/80 hover:text-white transition cursor-pointer"
+                        title="Edit Vault"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteAccount(acc.id, acc.account_name)}
+                        className="p-1.5 rounded-lg bg-black/20 hover:bg-rose-950/60 text-white/80 hover:text-white transition cursor-pointer"
+                        title="Delete Vault"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Middle Row: EMV Chip + Balance */}
+                  <div className="relative z-10 flex items-center justify-between my-auto pt-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-8 rounded-lg bg-gradient-to-tr from-[#eab308] via-[#fef08a] to-[#ca8a04] p-1 shadow-md border border-amber-300/60 relative overflow-hidden flex items-center justify-center">
+                        <div className="w-full h-[1px] bg-amber-900/40 absolute" />
+                        <div className="h-full w-[1px] bg-amber-900/40 absolute" />
+                        <div className="w-4 h-3 rounded-xs border border-amber-900/50" />
+                      </div>
+                      <Wifi className="w-5 h-5 text-white/75 rotate-90" />
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-[9px] font-black uppercase tracking-wider text-white/70 block leading-tight">
+                        Available Balance
+                      </span>
+                      <span className="text-xl sm:text-2xl font-black font-mono tracking-tight text-white drop-shadow-sm">
+                        {showBalance ? formatBDT(balanceVal, 'en') : '••••••••'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Real Account/Mobile Number Row with Copy */}
+                  <div className="relative z-10">
+                    <div className="flex items-center justify-between">
+                      <p className="font-mono text-base sm:text-lg font-black tracking-[0.16em] text-white/95 drop-shadow-md truncate">
+                        {renderRealAccountNumber(acc.account_number, acc.account_type)}
+                      </p>
+                      {acc.account_number && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(acc.account_number, acc.id)}
+                          className="p-1.5 rounded-lg bg-black/20 hover:bg-black/40 text-white/80 hover:text-white transition cursor-pointer shrink-0 ml-2"
+                          title="Copy Account Number"
+                        >
+                          {copiedId === acc.id ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-300" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Bottom Row: Cardholder Name + Expiry + Visa */}
+                  <div className="relative z-10 pt-2 border-t border-white/15 flex items-end justify-between">
+                    <div>
+                      <span className="text-[8px] font-black uppercase tracking-widest text-white/60 block">
+                        Cardholder Name
+                      </span>
+                      <p className="text-xs font-black uppercase tracking-wider text-white truncate max-w-[170px]">
+                        {acc.account_name}
+                      </p>
+                    </div>
+
+                    <div className="text-center px-2">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-white/60 block">
+                        Valid Thru
+                      </span>
+                      <span className="text-[10px] font-mono font-bold text-white tracking-widest">
+                        10/30
+                      </span>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-xl sm:text-2xl font-black italic tracking-tighter text-white drop-shadow-sm font-serif">
+                        {theme.network}
+                      </span>
+                    </div>
                   </div>
                 </div>
+
+                {/* DIRECT DATE-BY-DATE STATEMENT / HISTORY BUTTON */}
+                <button
+                  type="button"
+                  onClick={() => handleOpenHistory(acc)}
+                  className="w-full py-2.5 px-4 bg-white hover:bg-rose-50/60 active:scale-98 border border-[#F3D7D9] rounded-2xl text-xs font-bold text-slate-700 hover:text-[#E11D48] transition flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                >
+                  <Clock className="w-3.5 h-3.5 text-[#E11D48]" />
+                  <span>Date-by-Date Statement</span>
+                </button>
+
               </div>
+            );
+          })}
+        </div>
+      )}
 
-              <div className="mt-4 pt-3 border-t border-slate-100">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Available Reserves</span>
-                <p className="text-2xl font-black font-mono text-[#E11D48] mt-0.5">
-                  {formatBDT(acc.balance, lang)}
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => handleOpenAccountStatement(acc)}
-              className="mt-4 w-full py-2.5 rounded-xl bg-slate-50 hover:bg-rose-50 text-slate-700 hover:text-[#E11D48] border border-slate-200 hover:border-rose-200 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>{lang === 'bn' ? 'তারিখ অনুযায়ী স্টেটমেন্ট' : 'Date-by-Date Statement'}</span>
-            </button>
-          </div>
-        ))}
-      </div>
-
-      {/* MODAL: INDIVIDUAL ACCOUNT DATE-BY-DATE STATEMENT */}
-      {statementAccount && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs select-none">
-          <div className="w-full max-w-3xl bg-white border border-[#F3D7D9] rounded-3xl p-6 shadow-2xl relative flex flex-col max-h-[85vh]">
+      {/* 3. TRANSACTION HISTORY MODAL */}
+      {selectedAccountForHistory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-2xl bg-white border border-[#F3D7D9] rounded-3xl p-6 shadow-2xl flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
             
-            <button
-              type="button"
-              onClick={() => setStatementAccount(null)}
-              className="absolute right-5 top-5 p-1.5 rounded-full text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            {/* Modal Header */}
-            <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-              <BrandLogo name={statementAccount.account_name} type={statementAccount.account_type} className="w-10 h-10" />
-              <div>
-                <h3 className="text-base font-black text-slate-900">{statementAccount.account_name}</h3>
-                <p className="text-xs text-slate-500 font-mono font-bold">
-                  Current Balance: <strong className="text-[#E11D48]">{formatBDT(statementAccount.balance, lang)}</strong>
-                </p>
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-rose-50 text-[#E11D48] flex items-center justify-center">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    {selectedAccountForHistory.account_name} Statement
+                  </h3>
+                  <p className="text-xs text-slate-400 font-mono">
+                    {renderRealAccountNumber(selectedAccountForHistory.account_number, selectedAccountForHistory.account_type)}
+                  </p>
+                </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedAccountForHistory(null)}
+                className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            {/* Date-by-Date Filters */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">From Date</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">To Date</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Search Particulars</label>
-                <input
-                  type="text"
-                  placeholder="Notes, category..."
-                  value={txSearch}
-                  onChange={(e) => setTxSearch(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold"
-                />
-              </div>
-            </div>
-
-            {/* Statement Entries List */}
-            <div className="flex-1 overflow-y-auto space-y-2 border-t border-slate-100 pt-3">
-              {filteredAccountTx.length === 0 ? (
-                <div className="py-16 text-center text-xs text-slate-400 font-bold">
-                  No transactions found for the selected date range.
+            {/* Statement List */}
+            <div className="flex-1 overflow-y-auto py-4 divide-y divide-slate-100">
+              {historyLoading ? (
+                <div className="py-10 text-center text-xs font-bold text-slate-400 animate-pulse">
+                  Loading statement records...
+                </div>
+              ) : historyTransactions.length === 0 ? (
+                <div className="py-12 text-center text-xs font-medium text-slate-400">
+                  No date-by-date transactions recorded for this account.
                 </div>
               ) : (
-                filteredAccountTx.map((tx) => {
+                historyTransactions.map((tx) => {
                   const isInflow = ['income', 'transfer_in'].includes(tx.type);
                   return (
-                    <div
-                      key={tx.id}
-                      className="p-3 rounded-2xl bg-slate-50/70 border border-slate-100 flex items-center justify-between gap-3 text-xs"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-[11px] text-slate-400">{tx.transaction_date}</span>
-                          <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
-                            isInflow ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-[#E11D48]'
-                          }`}>
-                            {tx.type}
+                    <div key={tx.id} className="py-3 flex items-center justify-between gap-4 hover:bg-slate-50/70 px-2 rounded-xl transition">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                          isInflow ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-[#E11D48]'
+                        }`}>
+                          {isInflow ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
+                        </div>
+                        <div>
+                          <p className="text-xs font-black text-slate-800 line-clamp-1">
+                            {tx.notes || tx.category || 'Transaction Entry'}
+                          </p>
+                          <span className="text-[10px] font-bold text-slate-400">
+                            {tx.transaction_date}
                           </span>
                         </div>
-                        <p className="font-bold text-slate-800 truncate mt-0.5">{tx.notes || tx.category || 'Vault Activity'}</p>
                       </div>
 
                       <div className="text-right">
-                        <span className={`font-mono font-black text-sm ${isInflow ? 'text-emerald-600' : 'text-[#E11D48]'}`}>
-                          {isInflow ? '+' : '-'}{formatBDT(tx.amount, lang)}
+                        <p className={`text-xs font-mono font-black ${
+                          isInflow ? 'text-emerald-600' : 'text-[#E11D48]'
+                        }`}>
+                          {isInflow ? '+' : '-'}{formatBDT(tx.amount, 'en')}
+                        </p>
+                        <span className="text-[9px] font-black uppercase text-slate-400 px-1.5 py-0.5 bg-slate-100 rounded-md">
+                          {tx.type.replace('_', ' ')}
                         </span>
                       </div>
                     </div>
@@ -257,6 +502,93 @@ export default function AccountsModule({ onOpenAddAccount, onOpenTransfer, refre
                 })
               )}
             </div>
+
+            <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-500">Current Balance</span>
+              <span className="text-sm font-black font-mono text-slate-900">
+                {formatBDT(selectedAccountForHistory.balance, 'en')}
+              </span>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 4. EDIT ACCOUNT MODAL */}
+      {editingAccount && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-white border border-[#F3D7D9] rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <h3 className="text-base font-black text-slate-900">Edit Vault Card</h3>
+              <button
+                type="button"
+                onClick={() => setEditingAccount(null)}
+                className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-4 mt-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">
+                  Cardholder / Account Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">
+                  Account / Mobile Number
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editNumber}
+                  onChange={(e) => setEditNumber(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">
+                  Account Type
+                </label>
+                <select
+                  value={editType}
+                  onChange={(e) => setEditType(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
+                >
+                  <option value="bank">Bank Account</option>
+                  <option value="mfs">MFS (bKash / Nagad / Upay)</option>
+                  <option value="cash">Petty Cash</option>
+                </select>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingAccount(null)}
+                  className="py-2.5 px-4 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSubmitting}
+                  className="py-2.5 px-5 bg-[#E11D48] hover:bg-[#BE123C] text-white rounded-xl text-xs font-bold shadow-md shadow-rose-950/15 disabled:opacity-50"
+                >
+                  {editSubmitting ? 'Saving...' : 'Update Vault'}
+                </button>
+              </div>
+            </form>
 
           </div>
         </div>
