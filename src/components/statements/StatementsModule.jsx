@@ -41,10 +41,17 @@ export default function StatementsModule({ onDataChange }) {
   const loadStatementData = async () => {
     setLoading(true);
     try {
-      const { data: accData } = await supabase.from('accounts').select('id, account_name, account_type').eq('user_id', user.id);
+      const { data: accData } = await supabase
+        .from('accounts')
+        .select('id, account_name, account_type')
+        .eq('user_id', user.id);
       if (accData) setAccounts(accData);
 
-      const { data: txData, error } = await supabase.from('transactions').select('*').eq('user_id', user.id).order('transaction_date', { ascending: false });
+      const { data: txData, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('transaction_date', { ascending: false });
       if (!error && txData) setTransactions(txData);
     } catch (err) {
       console.error('Error fetching statement entries:', err);
@@ -254,12 +261,12 @@ export default function StatementsModule({ onDataChange }) {
       {/* PRINTABLE STATEMENT LETTERHEAD SHEET */}
       <div className="bg-white border border-[#F3D7D9] rounded-3xl p-6 sm:p-10 shadow-xs print:border-none print:shadow-none print:p-0">
         
-        {/* Letterhead Header with User Contact Information */}
+        {/* Letterhead Header with Logo & User Contact Information */}
         <div className="border-b-2 border-slate-900 pb-6 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-2xl bg-[#E11D48] flex items-center justify-center text-white font-black text-xl">
-                ৳
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-white border border-[#F3D7D9] p-1.5 flex items-center justify-center shadow-xs">
+                <img src="/logo.png" alt="FinFlow Logo" className="w-full h-full object-contain" />
               </div>
               <div>
                 <h1 className="text-2xl font-black text-slate-950 tracking-tight">FinFlow Treasury</h1>
@@ -372,7 +379,10 @@ export default function StatementsModule({ onDataChange }) {
       <AddTransactionModal
         isOpen={isAddTxOpen}
         onClose={() => setIsAddTxOpen(false)}
-        onTransactionAdded={loadStatementData}
+        onTransactionAdded={() => {
+          loadStatementData();
+          if (onDataChange) onDataChange();
+        }}
       />
 
     </div>

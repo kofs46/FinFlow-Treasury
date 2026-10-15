@@ -60,7 +60,7 @@ export default function AddTransactionModal({ isOpen, onClose, onTransactionAdde
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!accountId || !amount || Number(amount) <= 0) {
-      setErrorMsg(lang === 'bn' ? 'সঠিক অ্যাকাউন্ট ও টাকার পরিমাণ দিন।' : 'Please enter valid account and amount.');
+      setErrorMsg(lang === 'bn' ? 'Sothik account o takar poriman din.' : 'Please enter valid account and amount.');
       return;
     }
 
@@ -73,7 +73,7 @@ export default function AddTransactionModal({ isOpen, onClose, onTransactionAdde
 
       // Check balance if expense
       if (type === 'expense' && Number(selectedAcc?.balance || 0) < numAmount) {
-        throw new Error(lang === 'bn' ? 'অ্যাকাউন্টে পর্যাপ্ত ব্যালেন্স নেই!' : 'Insufficient wallet balance!');
+        throw new Error(lang === 'bn' ? 'Accounte porjapto balance nei!' : 'Insufficient wallet balance!');
       }
 
       // 1. Update Account Balance
@@ -129,10 +129,10 @@ export default function AddTransactionModal({ isOpen, onClose, onTransactionAdde
 
         <div className="text-center mb-5">
           <h3 className="text-lg font-black text-slate-950">
-            {lang === 'bn' ? 'আয় / ব্যয় যুক্ত করুন' : 'Record Income / Expense'}
+            {lang === 'bn' ? 'Ay / Baye Jukto Korun' : 'Record Income / Expense'}
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            {lang === 'bn' ? 'সরাসরি আয় বা খরচ এন্ট্রি করুন এবং ওয়ালেট আপডেট করুন' : 'Record direct cash flow and auto-sync wallet balance'}
+            {lang === 'bn' ? 'Shorashori ay ba khoroch entry korun ebong wallet update korun' : 'Record direct cash flow and auto-sync wallet balance'}
           </p>
         </div>
 
@@ -153,7 +153,7 @@ export default function AddTransactionModal({ isOpen, onClose, onTransactionAdde
             }`}
           >
             <ArrowDownLeft className="w-4 h-4" />
-            <span>{lang === 'bn' ? 'আয় (Income / জমা)' : 'Income (+)'}</span>
+            <span>{lang === 'bn' ? 'Ay (Income / Joma)' : 'Income (+)'}</span>
           </button>
 
           <button
@@ -164,14 +164,14 @@ export default function AddTransactionModal({ isOpen, onClose, onTransactionAdde
             }`}
           >
             <ArrowUpRight className="w-4 h-4" />
-            <span>{lang === 'bn' ? 'ব্যয় (Expense / খরচ)' : 'Expense (-)'}</span>
+            <span>{lang === 'bn' ? 'Baye (Expense / Khoroch)' : 'Expense (-)'}</span>
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3.5">
           <div>
             <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-              {lang === 'bn' ? 'টাকার পরিমাণ (৳ BDT)' : 'Amount (৳ BDT)'}
+              {lang === 'bn' ? 'Takar Poriman (৳ BDT)' : 'Amount (৳ BDT)'}
             </label>
             <input
               type="number"
@@ -186,7 +186,9 @@ export default function AddTransactionModal({ isOpen, onClose, onTransactionAdde
 
           <div>
             <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-              {type === 'income' ? (lang === 'bn' ? 'যে অ্যাকাউন্টে জমা হবে' : 'Deposit Into Wallet') : (lang === 'bn' ? 'যে অ্যাকাউন্ট থেকে কাটবে' : 'Pay From Wallet')}
+              {type === 'income' 
+                ? (lang === 'bn' ? 'Je accounte joma hobe' : 'Deposit Into Wallet') 
+                : (lang === 'bn' ? 'Je account theke katbe' : 'Pay From Wallet')}
             </label>
             <div className="relative">
               <select
@@ -207,7 +209,7 @@ export default function AddTransactionModal({ isOpen, onClose, onTransactionAdde
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-                {lang === 'bn' ? 'ক্যাটাগরি / খাত' : 'Category'}
+                {lang === 'bn' ? 'Category / Khat' : 'Category'}
               </label>
               <input
                 type="text"
@@ -220,7 +222,7 @@ export default function AddTransactionModal({ isOpen, onClose, onTransactionAdde
 
             <div>
               <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-                {lang === 'bn' ? 'তারিখ' : 'Date'}
+                {lang === 'bn' ? 'Tarikh' : 'Date'}
               </label>
               <input
                 type="date"
@@ -234,7 +236,7 @@ export default function AddTransactionModal({ isOpen, onClose, onTransactionAdde
 
           <div>
             <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-              {lang === 'bn' ? 'বিবরণ / নোট' : 'Particulars / Notes'}
+              {lang === 'bn' ? 'Biboron / Note' : 'Particulars / Notes'}
             </label>
             <input
               type="text"

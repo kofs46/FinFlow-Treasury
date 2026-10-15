@@ -7,10 +7,18 @@ import {
   LogOut, 
   Headphones, 
   ChevronDown,
-  Plus
+  Plus,
+  Cloud
 } from 'lucide-react';
 
-export default function Navbar({ onOpenContact, onOpenProfile, onNavigateHome, onNavigateTab, onOpenAddTx }) {
+export default function Navbar({ 
+  onOpenContact, 
+  onOpenProfile, 
+  onNavigateHome, 
+  onNavigateTab, 
+  onOpenAddTx,
+  onOpenDriveSync 
+}) {
   const { user, profile, signOut } = useAuth();
   const { lang, toggleLang } = useLang();
 
@@ -19,15 +27,19 @@ export default function Navbar({ onOpenContact, onOpenProfile, onNavigateHome, o
   return (
     <header className="w-full bg-white h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8 select-none">
       
-      {/* Brand Button -> Navigates to Dashboard */}
+      {/* Brand Button with Logo */}
       <button
         type="button"
         onClick={onNavigateHome}
-        className="flex items-center gap-3 shrink-0 text-left cursor-pointer hover:opacity-85 active:scale-98 transition focus:outline-none"
-        title={lang === 'bn' ? 'ড্যাশবোর্ডে ফিরে যান' : 'Go to Dashboard'}
+        className="flex items-center gap-3 shrink-0 text-left cursor-pointer hover:opacity-90 active:scale-98 transition focus:outline-none"
+        title={lang === 'bn' ? 'Dashboard-e fire jan' : 'Go to Dashboard'}
       >
-        <div className="w-9 h-9 rounded-xl bg-[#E11D48] flex items-center justify-center text-white font-black text-lg shadow-sm shadow-rose-500/20 shrink-0">
-          ৳
+        <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center p-1.5 shadow-xs border border-[#F3D7D9] shrink-0 overflow-hidden">
+          <img 
+            src="/logo.png" 
+            alt="FinFlow" 
+            className="w-full h-full object-contain"
+          />
         </div>
         <div>
           <div className="flex items-center gap-1.5">
@@ -47,7 +59,18 @@ export default function Navbar({ onOpenContact, onOpenProfile, onNavigateHome, o
       {/* Control Actions */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         
-        {/* Quick Add Inflow / Outflow Button */}
+        {/* 1. GOOGLE DRIVE BACKUP BUTTON (Direct Access) */}
+        <button
+          type="button"
+          onClick={onOpenDriveSync}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200 text-xs font-bold transition cursor-pointer shadow-xs"
+          title="Google Drive Cloud Auto-Backup"
+        >
+          <Cloud className="w-4 h-4" />
+          <span className="hidden sm:inline">Drive Sync</span>
+        </button>
+
+        {/* 2. Quick Add Entry Button */}
         {onOpenAddTx && (
           <button
             type="button"
@@ -55,25 +78,25 @@ export default function Navbar({ onOpenContact, onOpenProfile, onNavigateHome, o
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-[#E11D48] text-[#E11D48] hover:text-white border border-rose-200 text-xs font-bold transition cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>{lang === 'bn' ? 'আয় / ব্যয়' : 'Entry'}</span>
+            <span>{lang === 'bn' ? 'Ay / Baye' : 'Entry'}</span>
           </button>
         )}
 
-        {/* Live Notification Center */}
+        {/* Notification Dropdown */}
         <NotificationDropdown onNavigateTab={onNavigateTab} />
 
-        {/* Support */}
+        {/* Support Button */}
         <button
           type="button"
           onClick={onOpenContact}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-slate-600 hover:text-[#E11D48] hover:bg-rose-50/70 border border-slate-200 text-xs font-semibold transition cursor-pointer"
-          title={lang === 'bn' ? 'সহায়তা' : 'Support'}
+          title={lang === 'bn' ? 'Sohayota' : 'Support'}
         >
           <Headphones className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">{lang === 'bn' ? 'সহায়তা' : 'Support'}</span>
+          <span className="hidden md:inline">{lang === 'bn' ? 'Sohayota' : 'Support'}</span>
         </button>
 
-        {/* Language Switch */}
+        {/* Language Switcher */}
         <button
           type="button"
           onClick={toggleLang}

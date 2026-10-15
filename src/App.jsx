@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import { useAuth } from './context/AuthContext';
 import { useLang } from './context/LangContext';
@@ -17,6 +17,8 @@ import TransferModal from './components/accounts/TransferModal';
 import AddTransactionModal from './components/statements/AddTransactionModal';
 import ContactModal from './components/common/ContactModal';
 import ProfileModal from './components/common/ProfileModal';
+import DriveBackupModal from './components/common/DriveBackupModal';
+import { silentSyncToDrive } from './services/googleDriveSilentSync';
 import { 
   Shield, 
   KeyRound, 
@@ -41,6 +43,7 @@ export default function App() {
   const [isAddTxOpen, setIsAddTxOpen] = useState(false);
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isDriveModalOpen, setIsDriveModalOpen] = useState(false);
 
   // Global State Refresh
   const [refreshKey, setRefreshKey] = useState(0);
@@ -62,6 +65,61 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Full Treasury Data State for Google Drive Silent Auto-Backup
+  const [currentTreasuryPayload, setCurrentTreasuryPayload] = useState(null);
+
+  useEffect(() => {
+    if (user) {
+      loadFullDataForBackup();
+    }
+  }, [user, refreshKey]);
+
+  const loadFullDataForBackup = async () => {
+    try {
+      const [{ data: acc }, { data: tx }, { data: debts }, { data: proj }] = await Promise.all([
+        supabase.from('accounts').select('*').eq('user_id', user.id),
+        supabase.from('transactions').select('*').eq('user_id', user.id),
+        supabase.from('debts').select('*').eq('user_id', user.id),
+        supabase.from('projects').select('*').eq('user_id', user.id)
+      ]);
+
+      const payload = {
+        accounts: acc || [],
+        transactions: tx || [],
+        debts: debts || [],
+        projects: proj || [],
+        syncedAt: new Date().toISOString()
+      };
+
+      setCurrentTreasuryPayload(payload);
+
+      // Silent Auto-Sync Check (WhatsApp-er moto nirdishto din por por background-e sync)
+      const isConnected = localStorage.getItem('gdrive_connected') === 'true';
+      const lastSyncStr = localStorage.getItem('gdrive_last_sync');
+      const freqDays = parseInt(localStorage.getItem('gdrive_sync_freq') || '3', 10);
+
+      if (isConnected) {
+        let shouldSync = false;
+        if (!lastSyncStr) {
+          shouldSync = true;
+        } else {
+          const daysSince = (new Date() - new Date(lastSyncStr)) / (1000 * 60 * 60 * 24);
+          if (daysSince >= freqDays) shouldSync = true;
+        }
+
+        if (shouldSync) {
+          silentSyncToDrive(payload).then((res) => {
+            if (res.success) {
+              console.log('[FinFlow] Silent periodic backup auto-saved to Google Drive.');
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching backup snapshot:', err);
+    }
+  };
 
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
@@ -146,7 +204,9 @@ export default function App() {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-[#FAFAFA] text-slate-800">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 border-4 border-[#E11D48] border-t-transparent rounded-full animate-spin" />
+          <div className="w-16 h-16 rounded-2xl bg-white p-2.5 shadow-md border border-[#F3D7D9] flex items-center justify-center animate-pulse">
+            <img src="/logo.png" alt="FinFlow Logo" className="w-full h-full object-contain" />
+          </div>
           <p className="text-xs font-bold text-slate-500 uppercase tracking-widest font-mono">
             Loading FinFlow Treasury...
           </p>
@@ -159,16 +219,22 @@ export default function App() {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-rose-50/60 via-[#FAFAFA] to-orange-50/40 px-4 py-10 text-slate-900 overflow-x-hidden">
         <div className="w-full max-w-md rounded-3xl bg-white border border-[#F3D7D9] p-6 sm:p-8 shadow-2xl shadow-rose-900/10">
+          
+          {/* LOGIN HERO BRAND LOGO WITH PNG */}
           <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[#E11D48] text-white font-black text-2xl mb-3 shadow-lg shadow-rose-500/30 ring-4 ring-rose-100">
-              ৳
+            <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-white mb-3 shadow-md shadow-rose-900/10 ring-4 ring-rose-100 border border-[#F3D7D9]">
+              <img 
+                src="/logo.png" 
+                alt="FinFlow Treasury Logo" 
+                className="w-14 h-14 object-contain"
+              />
             </div>
             <h2 className="text-2xl font-black tracking-tight text-slate-950">
               {authMode === 'login' && 'Sign In'}
               {authMode === 'register' && 'Create Account'}
               {authMode === 'forgot' && 'PIN Recovery'}
             </h2>
-            <p className="text-xs text-slate-500 mt-1 font-medium">Enterprise Treasury & Liquidity Terminal</p>
+            <p className="text-xs text-slate-500 mt-1 font-medium">FinFlow Enterprise Treasury & Liquidity Terminal</p>
           </div>
 
           {errorMsg && (
@@ -391,6 +457,7 @@ export default function App() {
           onNavigateHome={() => setActiveTab('dashboard')}
           onNavigateTab={(tab) => setActiveTab(tab)}
           onOpenAddTx={() => setIsAddTxOpen(true)}
+          onOpenDriveSync={() => setIsDriveModalOpen(true)}
         />
       </div>
 
@@ -504,6 +571,17 @@ export default function App() {
       <ContactModal
         isOpen={isContactOpen}
         onClose={() => setIsContactOpen(false)}
+      />
+
+      {/* WHATSAPP-STYLE SILENT GOOGLE DRIVE BACKUP & RESTORE MODAL */}
+      <DriveBackupModal
+        isOpen={isDriveModalOpen}
+        onClose={() => setIsDriveModalOpen(false)}
+        currentTreasuryData={currentTreasuryPayload}
+        onRestoreCompleted={(restoredData) => {
+          console.log('[FinFlow] Restored Data from Drive:', restoredData);
+          handleDataRefresh();
+        }}
       />
     </div>
   );
