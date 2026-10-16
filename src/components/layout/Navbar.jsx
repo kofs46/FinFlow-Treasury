@@ -15,25 +15,25 @@ import {
   Mail,
   Phone,
   Edit2,
-  LogOut
+  LogOut,
+  Search
 } from 'lucide-react';
 
 export default function Navbar({ 
   onToggleSidebar, 
   onNavigateHome, 
   onOpenAddTx, 
-  onOpenProfile 
+  onOpenProfile,
+  onOpenCommandPalette
 }) {
   const { user, signOut } = useAuth();
   
-  // Profile Data State
   const [profileData, setProfileData] = useState({
     fullName: user?.user_metadata?.full_name || '',
     phone: user?.user_metadata?.phone || '',
     avatarUrl: ''
   });
 
-  // Dropdown & Notifications State
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -45,7 +45,6 @@ export default function Navbar({
     typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
   );
 
-  // Load Real Profile & Avatar from Supabase
   const loadLiveProfile = async () => {
     if (!user?.id) return;
     try {
@@ -70,7 +69,6 @@ export default function Navbar({
   useEffect(() => {
     loadLiveProfile();
 
-    // Listen to custom profile update event
     const handleProfileUpdated = (e) => {
       if (e.detail) {
         setProfileData((prev) => ({
@@ -86,7 +84,6 @@ export default function Navbar({
     return () => window.removeEventListener('finflow_profile_updated', handleProfileUpdated);
   }, [user?.id]);
 
-  // Click outside to close profile dropdown
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (profileRef.current && !profileRef.current.contains(event.target)) {
@@ -97,7 +94,6 @@ export default function Navbar({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Request Phone/Web Push Notification Permission
   const requestPhoneNotificationPermission = async () => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       const permission = await Notification.requestPermission();
@@ -111,7 +107,6 @@ export default function Navbar({
     }
   };
 
-  // Fetch Supabase Notifications
   useEffect(() => {
     if (!user?.id) return;
 
@@ -187,24 +182,31 @@ export default function Navbar({
     <header className="w-full bg-white border-b border-[#F3D7D9] px-4 sm:px-6 py-3 select-none relative z-30">
       <div className="flex items-center justify-between gap-4">
         
-        {/* Left: Menu & Brand Logo */}
-        <div className="flex items-center gap-3">
+        {/* Left: 3-Line Hamburger Menu & Brand Logo */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          
+          {/* 3-Line Hamburger Button */}
           <button
             type="button"
             onClick={onToggleSidebar}
-            className="flex items-center gap-2 py-2 px-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-rose-50 text-slate-800 hover:text-[#E11D48] text-xs font-bold transition cursor-pointer shadow-xs active:scale-95"
-            title="Toggle Menu"
+            className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-rose-50 text-slate-700 hover:text-[#E11D48] transition cursor-pointer shadow-xs active:scale-95 flex items-center justify-center group"
+            title="Open Navigation Menu"
+            aria-label="Open Navigation Menu"
           >
-            <MenuIcon className="w-4 h-4 text-slate-600" />
-            <span>Menu</span>
+            <div className="w-4 h-4 flex flex-col justify-center gap-1">
+              <span className="w-4 h-0.5 bg-slate-700 group-hover:bg-[#E11D48] rounded-full transition-colors" />
+              <span className="w-3.5 h-0.5 bg-slate-700 group-hover:bg-[#E11D48] rounded-full transition-colors" />
+              <span className="w-4 h-0.5 bg-slate-700 group-hover:bg-[#E11D48] rounded-full transition-colors" />
+            </div>
           </button>
 
+          {/* Brand Logo & Title */}
           <button
             type="button"
             onClick={onNavigateHome}
-            className="flex items-center gap-2.5 group cursor-pointer ml-1"
+            className="flex items-center gap-2.5 group cursor-pointer ml-0.5"
           >
-            <div className="w-9 h-9 rounded-xl bg-rose-50 border border-rose-200 p-1 flex items-center justify-center shadow-xs group-hover:scale-105 transition">
+            <div className="w-9 h-9 rounded-xl bg-rose-50 border border-rose-200 p-1.5 flex items-center justify-center shadow-xs group-hover:scale-105 transition">
               <img 
                 src="/logo.png" 
                 alt="FinFlow Logo" 
@@ -228,6 +230,17 @@ export default function Navbar({
         {/* Right: Actions, Notifications & Profile Hub */}
         <div className="flex items-center gap-2 sm:gap-3">
           
+          {/* Quick Search Palette Button */}
+          <button
+            type="button"
+            onClick={onOpenCommandPalette}
+            className="p-2 rounded-xl bg-slate-50 hover:bg-rose-50 border border-slate-200 text-slate-600 hover:text-[#E11D48] transition cursor-pointer"
+            title="Quick Search (Ctrl + K)"
+          >
+            <Search className="w-4 h-4" />
+          </button>
+
+          {/* Add Transaction */}
           <button
             type="button"
             onClick={onOpenAddTx}
@@ -254,7 +267,7 @@ export default function Navbar({
             </button>
 
             {isNotifOpen && (
-              <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white border border-[#F3D7D9] rounded-3xl shadow-2xl overflow-hidden z-50 animate-in zoom-in-95 duration-150">
+              <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white border border-[#F3D7D9] rounded-3xl shadow-2xl overflow-hidden z-50">
                 <div className="p-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-black text-slate-900">Notifications</span>
@@ -338,7 +351,7 @@ export default function Navbar({
             )}
           </div>
 
-          {/* Profile Dropdown Hub */}
+          {/* Profile Dropdown */}
           <div className="relative" ref={profileRef}>
             <button
               type="button"
@@ -362,11 +375,8 @@ export default function Navbar({
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition ml-0.5" />
             </button>
 
-            {/* Profile Dropdown Menu Card */}
             {isProfileOpen && (
-              <div className="absolute right-0 mt-2 w-72 bg-white border border-[#F3D7D9] rounded-3xl shadow-2xl p-4 z-50 animate-in zoom-in-95 duration-150">
-                
-                {/* User Info Header with Picture */}
+              <div className="absolute right-0 mt-2 w-72 bg-white border border-[#F3D7D9] rounded-3xl shadow-2xl p-4 z-50">
                 <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
                   <div className="w-12 h-12 rounded-2xl overflow-hidden border-2 border-rose-200 bg-rose-50 flex items-center justify-center shrink-0 shadow-xs">
                     {profileData.avatarUrl ? (
@@ -387,7 +397,6 @@ export default function Navbar({
                   </div>
                 </div>
 
-                {/* Contact Information List */}
                 <div className="py-3 space-y-2 border-b border-slate-100">
                   <div className="flex items-center gap-2.5 text-slate-600">
                     <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -403,7 +412,6 @@ export default function Navbar({
                   </div>
                 </div>
 
-                {/* Quick Action Buttons */}
                 <div className="pt-3 space-y-1.5">
                   <button
                     type="button"
@@ -426,7 +434,6 @@ export default function Navbar({
                     <span>Sign Out</span>
                   </button>
                 </div>
-
               </div>
             )}
           </div>

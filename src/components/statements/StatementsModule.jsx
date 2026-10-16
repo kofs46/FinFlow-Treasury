@@ -1,389 +1,369 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../context/AuthContext';
-import { useLang } from '../../context/LangContext';
 import { formatBDT } from '../../utils/currency';
-import AddTransactionModal from './AddTransactionModal';
 import { 
+  Download, 
   FileSpreadsheet, 
-  Printer, 
-  Plus, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  Search,
-  Building2,
-  Phone,
-  MapPin,
-  User
+  Search, 
+  User, 
+  Mail, 
+  Phone, 
+  MapPin, 
+  Wallet, 
+  Calendar,
+  CheckCircle2,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Filter
 } from 'lucide-react';
+import { 
+  generateBankStatementPDF, 
+  generateStatementExcel 
+} from '../../services/reportExportService';
 
-export default function StatementsModule({ onDataChange }) {
-  const { user, profile } = useAuth();
-  const { lang } = useLang();
+export default function StatementsModule() {
+  const { user } = useAuth();
+  const [profile, setProfile] = useState({
+    fullName: user?.user_metadata?.full_name || 'Treasury Officer',
+    email: user?.email || '',
+    phone: user?.user_metadata?.phone || '',
+    address: 'Dhaka, Bangladesh'
+  });
 
   const [transactions, setTransactions] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isAddTxOpen, setIsAddTxOpen] = useState(false);
 
   // Filters
-  const [dateRangeMode, setDateRangeMode] = useState('all');
+  const [filterAccount, setFilterAccount] = useState('all');
+  const [filterType, setFilterType] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [selectedAccount, setSelectedAccount] = useState('all');
-  const [selectedType, setSelectedType] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
 
+  // 1. Fetch User Profile & Financial Records
   useEffect(() => {
-    if (user) loadStatementData();
-  }, [user]);
+    if (!user?.id) return;
 
-  const loadStatementData = async () => {
-    setLoading(true);
-    try {
-      const { data: accData } = await supabase
-        .from('accounts')
-        .select('id, account_name, account_type')
-        .eq('user_id', user.id);
-      if (accData) setAccounts(accData);
+    const fetchAllData = async () => {
+      try {
+        setLoading(true);
 
-      const { data: txData, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('transaction_date', { ascending: false });
-      if (!error && txData) setTransactions(txData);
-    } catch (err) {
-      console.error('Error fetching statement entries:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+        const [profileRes, accRes, txRes] = await Promise.all([
+          supabase.from('profiles').select('full_name, phone, address').eq('id', user.id).single(),
+          supabase.from('accounts').select('*').eq('user_id', user.id),
+          supabase.from('transactions').select('*').eq('user_id', user.id).order('transaction_date', { ascending: false })
+        ]);
 
-  const getAccountName = (accId) => {
-    if (!accId) return 'General Vault';
-    const found = accounts.find(a => a.id === accId);
-    return found ? found.account_name : 'Vault Account';
-  };
+        if (profileRes.data) {
+          setProfile({
+            fullName: profileRes.data.full_name || user?.user_metadata?.full_name || 'Treasury Officer',
+            email: user?.email || '',
+            phone: profileRes.data.phone || user?.user_metadata?.phone || 'Not recorded',
+            address: profileRes.data.address || 'Dhaka, Bangladesh'
+          });
+        }
 
-  const filteredData = transactions.filter((t) => {
-    const tDate = t.transaction_date || t.created_at?.substring(0, 10);
-    if (dateRangeMode === 'custom') {
-      if (startDate && tDate < startDate) return false;
-      if (endDate && tDate > endDate) return false;
-    }
-    if (selectedAccount !== 'all' && t.account_id !== selectedAccount) return false;
-    if (selectedType !== 'all') {
-      if (selectedType === 'inflow' && !['income', 'transfer_in'].includes(t.type)) return false;
-      if (selectedType === 'outflow' && !['expense', 'transfer_out', 'project_expense'].includes(t.type)) return false;
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      const notes = (t.notes || '').toLowerCase();
-      const cat = (t.category || '').toLowerCase();
-      const acc = getAccountName(t.account_id).toLowerCase();
-      if (!notes.includes(q) && !cat.includes(q) && !acc.includes(q)) return false;
-    }
-    return true;
+        if (accRes.data) setAccounts(accRes.data);
+        if (txRes.data) setTransactions(txRes.data);
+      } catch (err) {
+        console.warn('Error loading statement records:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAllData();
+  }, [user?.id]);
+
+  // 2. Filter Logic
+  const filteredTransactions = transactions.filter((tx) => {
+    const matchAccount = filterAccount === 'all' || tx.account_id === filterAccount;
+    const matchType = filterType === 'all' || tx.type === filterType;
+    const matchSearch = !searchTerm || 
+      (tx.notes && tx.notes.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (tx.category && tx.category.toLowerCase().includes(searchTerm.toLowerCase()));
+
+    const matchDateStart = !startDate || tx.transaction_date >= startDate;
+    const matchDateEnd = !endDate || tx.transaction_date <= endDate;
+
+    return matchAccount && matchType && matchSearch && matchDateStart && matchDateEnd;
   });
 
-  const totalInflow = filteredData
+  const totalInflow = filteredTransactions
     .filter((t) => ['income', 'transfer_in'].includes(t.type))
-    .reduce((sum, t) => sum + Number(t.amount), 0);
+    .reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
 
-  const totalOutflow = filteredData
-    .filter((t) => ['expense', 'transfer_out', 'project_expense'].includes(t.type))
-    .reduce((sum, t) => sum + Number(t.amount), 0);
+  const totalOutflow = filteredTransactions
+    .filter((t) => ['expense', 'transfer_out'].includes(t.type))
+    .reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
 
   const netBalance = totalInflow - totalOutflow;
 
-  // EXCEL / CSV EXPORT WITH FULL USER METADATA LETTERHEAD
-  const exportToExcel = () => {
-    const orgName = "FinFlow Treasury ERP";
-    const userName = profile?.full_name || user?.email?.split('@')[0] || 'User';
-    const userPhone = profile?.phone || 'N/A';
-    const userAddr = profile?.address || 'Dhaka, Bangladesh';
+  // 3. Export PDF Handler
+  const handleExportPDF = () => {
+    const selectedAcc = accounts.find((a) => a.id === filterAccount);
+    const accName = selectedAcc ? selectedAcc.account_name : 'Consolidated Treasury Vault';
+    const accNum = selectedAcc ? selectedAcc.account_number : 'ALL-VAULTS';
+    const accType = selectedAcc ? selectedAcc.account_type : 'Corporate';
 
-    const metadataRows = [
-      [`"${orgName}"`],
-      [`"Client / Account Holder: ${userName}"`],
-      [`"Contact Phone: ${userPhone}"`],
-      [`"Address: ${userAddr}"`],
-      [`"Generated: ${new Date().toLocaleString()}"`],
-      []
-    ];
-
-    const headers = ['Date', 'Account / Wallet', 'Type', 'Category', 'Notes / Particulars', 'Inflow (BDT)', 'Outflow (BDT)'];
-    
-    const dataRows = filteredData.map((t) => {
-      const isInflow = ['income', 'transfer_in'].includes(t.type);
-      const isOutflow = ['expense', 'transfer_out', 'project_expense'].includes(t.type);
-      return [
-        `"${t.transaction_date || t.created_at?.substring(0, 10)}"`,
-        `"${getAccountName(t.account_id).replace(/"/g, '""')}"`,
-        `"${t.type.toUpperCase()}"`,
-        `"${(t.category || 'General').replace(/"/g, '""')}"`,
-        `"${(t.notes || '').replace(/"/g, '""')}"`,
-        isInflow ? Number(t.amount).toFixed(2) : '0.00',
-        isOutflow ? Number(t.amount).toFixed(2) : '0.00'
-      ];
+    generateBankStatementPDF({
+      userName: profile.fullName,
+      userEmail: profile.email,
+      userPhone: profile.phone,
+      userAddress: profile.address,
+      accountName: accName,
+      accountNumber: accNum,
+      accountType: accType,
+      startDate: startDate || (filteredTransactions.length ? filteredTransactions[filteredTransactions.length - 1].transaction_date : ''),
+      endDate: endDate || (filteredTransactions.length ? filteredTransactions[0].transaction_date : ''),
+      openingBalance: 0,
+      closingBalance: netBalance,
+      totalInflow,
+      totalOutflow,
+      transactions: filteredTransactions
     });
+  };
 
-    dataRows.push([]);
-    dataRows.push(['"TOTAL"', '""', '""', '""', '""', `"${totalInflow.toFixed(2)}"`, `"${totalOutflow.toFixed(2)}"`]);
-    dataRows.push(['"NET MOVEMENT"', '""', '""', '""', '""', `"${netBalance.toFixed(2)}"`, '""']);
-
-    const fullContent = [
-      ...metadataRows.map(r => r.join(',')),
-      headers.join(','),
-      ...dataRows.map(r => r.join(','))
-    ].join('\r\n');
-
-    const blob = new Blob(['\uFEFF' + fullContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `FinFlow_Statement_${new Date().toISOString().substring(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  // 4. Export Excel Handler
+  const handleExportExcel = () => {
+    const selectedAcc = accounts.find((a) => a.id === filterAccount);
+    const accName = selectedAcc ? selectedAcc.account_name : 'Combined_Ledger';
+    generateStatementExcel({
+      userName: profile.fullName,
+      accountName: accName,
+      transactions: filteredTransactions
+    });
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 select-none font-sans">
       
-      {/* Control Action Bar */}
-      <div className="bg-white border border-[#F3D7D9] rounded-3xl p-5 shadow-xs print:hidden space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h3 className="text-base font-black text-slate-900 tracking-tight flex items-center gap-2">
-              <FileSpreadsheet className="w-5 h-5 text-[#E11D48]" />
-              <span>{lang === 'bn' ? 'অডিট ও হিসাব বিবরণী' : 'Treasury Statements & Audit'}</span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {lang === 'bn' ? 'সরাসরি আয়-ব্যয় রেকর্ড করুন এবং এক্সেল/পিডিএফ স্টেটমেন্ট তৈরি করুন' : 'Export statements with verified user letterhead'}
-            </p>
+      {/* 1. TOP HEADER & EXPORT ACTIONS */}
+      <div className="rounded-3xl bg-white border border-[#F3D7D9] p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-0.5 rounded-full bg-rose-50 text-[#E11D48] text-[10px] font-black uppercase tracking-wider border border-rose-200">
+              Official Treasury Ledger
+            </span>
+            <span className="text-xs font-bold text-slate-400">
+              • {filteredTransactions.length} Verified Entries
+            </span>
           </div>
-
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setIsAddTxOpen(true)}
-              className="py-2.5 px-4 bg-[#E11D48] hover:bg-[#BE123C] text-white rounded-xl text-xs font-bold shadow-md shadow-rose-500/20 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
-            >
-              <Plus className="w-4 h-4" />
-              <span>{lang === 'bn' ? 'আয় / ব্যয় যুক্ত করুন' : 'Record Income / Expense'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={exportToExcel}
-              className="py-2.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition flex items-center gap-1.5 cursor-pointer active:scale-95"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Excel (CSV)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="py-2.5 px-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95"
-            >
-              <Printer className="w-4 h-4" />
-              <span>Print PDF</span>
-            </button>
-          </div>
+          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight mt-1">
+            Statements & Financial Ledger
+          </h1>
+          <p className="text-xs text-slate-400 font-medium">
+            Generate formal corporate statements with dynamic user identity & running balances
+          </p>
         </div>
 
-        {/* Filter Bar */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-3 border-t border-slate-100">
-          <div>
-            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Date Scope</label>
-            <select
-              value={dateRangeMode}
-              onChange={(e) => setDateRangeMode(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold text-slate-800"
-            >
-              <option value="all">All Time Records</option>
-              <option value="custom">Custom Date Range</option>
-            </select>
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            className="py-2.5 px-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-2xl text-xs font-bold transition flex items-center gap-2 cursor-pointer shadow-xs active:scale-95"
+            title="Download Excel Spreadsheet"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <span>Excel (.xlsx)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportPDF}
+            className="py-2.5 px-5 bg-[#E11D48] hover:bg-[#BE123C] text-white rounded-2xl text-xs font-black shadow-md shadow-rose-950/15 flex items-center gap-2 transition active:scale-95 cursor-pointer"
+            title="Download Institutional PDF Statement"
+          >
+            <Download className="w-4 h-4" />
+            <span>Export Official PDF</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 2. STATEMENT IDENTITY CARD (User Profile Header View) */}
+      <div className="rounded-3xl bg-white border border-[#F3D7D9] p-6 shadow-xs">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+          
+          {/* User Info Details */}
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-[#E11D48] flex items-center justify-center font-black text-lg shadow-xs shrink-0">
+              {profile.fullName.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-black text-slate-900">{profile.fullName}</h3>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" /> Verified Holder
+                </span>
+              </div>
+              
+              <div className="flex flex-wrap items-center gap-y-1 gap-x-4 mt-2 text-xs text-slate-500 font-medium">
+                <span className="flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-slate-400" />
+                  {profile.email}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Phone className="w-3.5 h-3.5 text-slate-400" />
+                  {profile.phone}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                  {profile.address}
+                </span>
+              </div>
+            </div>
           </div>
 
-          {dateRangeMode === 'custom' && (
-            <>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Start Date</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">End Date</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold"
-                />
-              </div>
-            </>
-          )}
-
-          <div>
-            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Wallet</label>
-            <select
-              value={selectedAccount}
-              onChange={(e) => setSelectedAccount(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold"
-            >
-              <option value="all">All Accounts</option>
-              {accounts.map(a => <option key={a.id} value={a.id}>{a.account_name}</option>)}
-            </select>
+          {/* Quick Summary Numbers */}
+          <div className="flex items-center gap-3 w-full lg:w-auto justify-between lg:justify-end border-t lg:border-t-0 pt-4 lg:pt-0 border-slate-100">
+            <div className="text-left lg:text-right pr-4 lg:border-r border-slate-200">
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 block">Total Inflow</span>
+              <p className="text-sm sm:text-base font-black font-mono text-emerald-700">
+                +{formatBDT(totalInflow, 'en')}
+              </p>
+            </div>
+            <div className="text-left lg:text-right pr-4 lg:border-r border-slate-200">
+              <span className="text-[10px] font-black uppercase tracking-wider text-[#E11D48] block">Total Outflow</span>
+              <p className="text-sm sm:text-base font-black font-mono text-[#E11D48]">
+                -{formatBDT(totalOutflow, 'en')}
+              </p>
+            </div>
+            <div className="text-left lg:text-right">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Net Liquidity</span>
+              <p className="text-base sm:text-lg font-black font-mono text-slate-900">
+                {formatBDT(netBalance, 'en')}
+              </p>
+            </div>
           </div>
 
-          <div>
-            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Search</label>
+        </div>
+      </div>
+
+      {/* 3. ADVANCED SEARCH & FILTER CONTROLS */}
+      <div className="rounded-3xl bg-white border border-[#F3D7D9] p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 flex-1 min-w-[220px]">
+          <div className="relative w-full max-w-sm">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
             <input
               type="text"
-              placeholder="Particulars, category..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-[#F3D7D9] rounded-xl text-xs font-bold"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search beneficiary, note or category..."
+              className="w-full pl-9 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#E11D48]"
             />
           </div>
         </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Account Filter */}
+          <select
+            value={filterAccount}
+            onChange={(e) => setFilterAccount(e.target.value)}
+            className="py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:border-[#E11D48] cursor-pointer"
+          >
+            <option value="all">All Vault Accounts</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>{a.account_name}</option>
+            ))}
+          </select>
+
+          {/* Flow Type Filter */}
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:border-[#E11D48] cursor-pointer"
+          >
+            <option value="all">All Flow Types</option>
+            <option value="income">Inflows Only (+)</option>
+            <option value="expense">Outflows Only (-)</option>
+            <option value="transfer_in">Transfer In</option>
+            <option value="transfer_out">Transfer Out</option>
+          </select>
+
+          {/* Date Range Start */}
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="py-2 px-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-700 focus:outline-none focus:border-[#E11D48] cursor-pointer"
+            title="Start Date"
+          />
+
+          {/* Date Range End */}
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="py-2 px-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-700 focus:outline-none focus:border-[#E11D48] cursor-pointer"
+            title="End Date"
+          />
+        </div>
       </div>
 
-      {/* PRINTABLE STATEMENT LETTERHEAD SHEET */}
-      <div className="bg-white border border-[#F3D7D9] rounded-3xl p-6 sm:p-10 shadow-xs print:border-none print:shadow-none print:p-0">
-        
-        {/* Letterhead Header with Logo & User Contact Information */}
-        <div className="border-b-2 border-slate-900 pb-6 mb-6 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-white border border-[#F3D7D9] p-1.5 flex items-center justify-center shadow-xs">
-                <img src="/logo.png" alt="FinFlow Logo" className="w-full h-full object-contain" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-black text-slate-950 tracking-tight">FinFlow Treasury</h1>
-                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Enterprise Liquidity & Audit Statement</p>
-              </div>
-            </div>
-
-            {/* User Meta Information Block */}
-            <div className="mt-4 space-y-1 text-xs text-slate-700">
-              <p className="font-bold flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-slate-400" />
-                <span>Account Holder: <strong>{profile?.full_name || user?.email?.split('@')[0]}</strong></span>
-              </p>
-              <p className="flex items-center gap-1.5">
-                <Phone className="w-3.5 h-3.5 text-slate-400" />
-                <span>Contact: <strong>{profile?.phone || 'N/A'}</strong></span>
-              </p>
-              <p className="flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                <span>Address: <strong>{profile?.address || 'Dhaka, Bangladesh'}</strong></span>
-              </p>
-            </div>
-          </div>
-
-          <div className="text-left sm:text-right text-xs">
-            <span className="px-3 py-1 rounded-full bg-rose-50 text-[#E11D48] font-black text-[10px] uppercase border border-rose-200">
-              Official Audit Copy
-            </span>
-            <p className="text-slate-500 mt-2 font-mono">Date: {new Date().toLocaleDateString('en-GB')}</p>
-            <p className="text-slate-500 font-mono">Entries: {filteredData.length}</p>
-          </div>
-        </div>
-
-        {/* Ledger Summary Cards */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
-            <span className="text-[10px] font-black uppercase text-emerald-800">Total Inflow</span>
-            <p className="text-lg font-black font-mono text-emerald-600 mt-0.5">+{formatBDT(totalInflow, lang)}</p>
-          </div>
-          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-100">
-            <span className="text-[10px] font-black uppercase text-[#E11D48]">Total Outflow</span>
-            <p className="text-lg font-black font-mono text-[#E11D48] mt-0.5">-{formatBDT(totalOutflow, lang)}</p>
-          </div>
-          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
-            <span className="text-[10px] font-black uppercase text-slate-700">Net Movement</span>
-            <p className={`text-lg font-black font-mono mt-0.5 ${netBalance >= 0 ? 'text-slate-950' : 'text-[#E11D48]'}`}>
-              {netBalance >= 0 ? '+' : ''}{formatBDT(netBalance, lang)}
-            </p>
-          </div>
-        </div>
-
-        {/* Table */}
+      {/* 4. PROFESSIONAL TRANSACTION LEDGER TABLE */}
+      <div className="rounded-3xl bg-white border border-[#F3D7D9] overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b-2 border-slate-300 text-slate-500 font-bold uppercase text-[10px]">
-                <th className="py-2.5 px-3">Date</th>
-                <th className="py-2.5 px-3">Account / Wallet</th>
-                <th className="py-2.5 px-3">Type</th>
-                <th className="py-2.5 px-3">Category</th>
-                <th className="py-2.5 px-3">Particulars / Notes</th>
-                <th className="py-2.5 px-3 text-right">Inflow (BDT)</th>
-                <th className="py-2.5 px-3 text-right">Outflow (BDT)</th>
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 text-[10px] uppercase font-black text-slate-500 border-b border-slate-100">
+              <tr>
+                <th className="py-3 px-4">Posting Date</th>
+                <th className="py-3 px-4">Beneficiary / Notes</th>
+                <th className="py-3 px-4">Vault Account</th>
+                <th className="py-3 px-4">Classification</th>
+                <th className="py-3 px-4 text-right">Inflow (+)</th>
+                <th className="py-3 px-4 text-right">Outflow (-)</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 font-medium">
-              {filteredData.map((t) => {
-                const isInflow = ['income', 'transfer_in'].includes(t.type);
-                return (
-                  <tr key={t.id}>
-                    <td className="py-2.5 px-3 font-mono text-slate-600">{t.transaction_date || t.created_at?.substring(0, 10)}</td>
-                    <td className="py-2.5 px-3 font-bold text-slate-900">{getAccountName(t.account_id)}</td>
-                    <td className="py-2.5 px-3 uppercase text-[10px] font-black">{t.type}</td>
-                    <td className="py-2.5 px-3 text-slate-700">{t.category || 'General'}</td>
-                    <td className="py-2.5 px-3 text-slate-600">{t.notes || '—'}</td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600">
-                      {isInflow ? `+${formatBDT(t.amount, lang)}` : '—'}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-[#E11D48]">
-                      {!isInflow ? `-${formatBDT(t.amount, lang)}` : '—'}
-                    </td>
-                  </tr>
-                );
-              })}
+            <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-xs font-bold text-slate-400 animate-pulse">
+                    Retrieving statement records...
+                  </td>
+                </tr>
+              ) : filteredTransactions.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-xs font-medium text-slate-400">
+                    No transactions match the selected statement filters.
+                  </td>
+                </tr>
+              ) : (
+                filteredTransactions.map((tx) => {
+                  const isInflow = ['income', 'transfer_in'].includes(tx.type);
+                  const linkedAcc = accounts.find((a) => a.id === tx.account_id);
+
+                  return (
+                    <tr key={tx.id} className="hover:bg-slate-50/70 transition">
+                      <td className="py-3.5 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                        {tx.transaction_date}
+                      </td>
+                      <td className="py-3.5 px-4 font-bold text-slate-900 max-w-xs truncate">
+                        {tx.notes || 'Ledger transaction'}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-600 font-medium whitespace-nowrap">
+                        {linkedAcc?.account_name || 'Direct Reserve'}
+                      </td>
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <span className="px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-bold text-slate-600">
+                          {tx.category || 'General'}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-600 whitespace-nowrap">
+                        {isInflow ? `+${formatBDT(tx.amount, 'en')}` : '—'}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-mono font-bold text-[#E11D48] whitespace-nowrap">
+                        {!isInflow ? `-${formatBDT(tx.amount, 'en')}` : '—'}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-slate-900 font-black text-sm">
-                <td colSpan={5} className="py-3 px-3 uppercase text-[11px]">Net Totals</td>
-                <td className="py-3 px-3 text-right font-mono text-emerald-600">+{formatBDT(totalInflow, lang)}</td>
-                <td className="py-3 px-3 text-right font-mono text-[#E11D48]">-{formatBDT(totalOutflow, lang)}</td>
-              </tr>
-            </tfoot>
           </table>
         </div>
-
-        {/* Printable Signature Footers */}
-        <div className="hidden print:flex items-center justify-between pt-20 mt-12 border-t border-slate-300 text-xs">
-          <div>
-            <div className="w-44 border-b border-slate-400 mb-1" />
-            <p className="font-bold text-slate-700">Accountant / Prepared By</p>
-          </div>
-          <div className="text-right">
-            <div className="w-44 border-b border-slate-400 mb-1 ml-auto" />
-            <p className="font-bold text-slate-700">Authorized Treasury Auditor</p>
-          </div>
-        </div>
-
       </div>
-
-      <AddTransactionModal
-        isOpen={isAddTxOpen}
-        onClose={() => setIsAddTxOpen(false)}
-        onTransactionAdded={() => {
-          loadStatementData();
-          if (onDataChange) onDataChange();
-        }}
-      />
 
     </div>
   );

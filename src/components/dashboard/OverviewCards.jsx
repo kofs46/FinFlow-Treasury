@@ -317,8 +317,15 @@ export default function OverviewCards({
                 const isSelected = d.key === selectedMonth;
 
                 return (
-                  <div key={d.key} className="flex-1 flex flex-col items-center h-full justify-end group relative">
-                    <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition bg-slate-900 text-white text-[9px] p-1.5 rounded-lg pointer-events-none whitespace-nowrap z-20 font-mono shadow-lg">
+                  <button
+                    key={d.key}
+                    type="button"
+                    onClick={() => setSelectedMonth(d.key)}
+                    aria-pressed={isSelected}
+                    aria-label={`${d.label}: inflow ${formatBDT(d.inflow, lang)}, outflow ${formatBDT(d.outflow, lang)}. Select month`}
+                    className={`flex-1 min-w-0 flex flex-col items-center h-full justify-end group relative rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 ${isSelected ? 'bg-rose-50/70' : 'hover:bg-slate-50'}`}
+                  >
+                    <div className="absolute -top-10 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition bg-slate-900 text-white text-[9px] p-1.5 rounded-lg pointer-events-none whitespace-nowrap z-20 font-mono shadow-lg">
                       <p className="text-emerald-300">+{formatBDT(d.inflow, lang)}</p>
                       <p className="text-rose-300">-{formatBDT(d.outflow, lang)}</p>
                     </div>
@@ -343,7 +350,7 @@ export default function OverviewCards({
                     }`}>
                       {d.label}
                     </span>
-                  </div>
+                  </button>
                 );
               })}
             </div>

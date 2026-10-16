@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import { useAuth } from './context/AuthContext';
 import { useLang } from './context/LangContext';
 import Navbar from './components/layout/Navbar';
 import BottomNav from './components/layout/BottomNav';
 import SidebarDrawer from './components/layout/SidebarDrawer';
+import CommandPalette from './components/common/CommandPalette';
+import SpeedDialFAB from './components/common/SpeedDialFAB';
 import OverviewCards from './components/dashboard/OverviewCards';
 import AccountsModule from './components/accounts/AccountsModule';
 import ProjectsModule from './components/projects/ProjectsModule';
 import DebtsModule from './components/debts/DebtsModule';
-import ComplianceModule from './components/compliance/ComplianceModule';
 import AnalyticsModule from './components/analytics/AnalyticsModule';
 import StatementsModule from './components/statements/StatementsModule';
 import AddAccountModal from './components/accounts/AddAccountModal';
@@ -35,7 +36,7 @@ export default function App() {
   const { t } = useLang();
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  // Sidebar Drawer & Modals State
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddAccountOpen, setIsAddAccountOpen] = useState(false);
   const [isTransferOpen, setIsTransferOpen] = useState(false);
@@ -43,14 +44,24 @@ export default function App() {
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
-  // Global Refresh Key
   const [refreshKey, setRefreshKey] = useState(0);
 
   const handleDataRefresh = () => {
     setRefreshKey((prev) => prev + 1);
   };
 
-  // Auth States
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const [authMode, setAuthMode] = useState('login');
   const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
@@ -67,7 +78,6 @@ export default function App() {
   const [successMsg, setSuccessMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Auth Handlers
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -397,10 +407,23 @@ export default function App() {
           onNavigateHome={() => setActiveTab('dashboard')}
           onOpenAddTx={() => setIsAddTxOpen(true)}
           onOpenProfile={() => setIsProfileOpen(true)}
+          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         />
       </div>
 
-      {/* 2. SIDEBAR DRAWER (Support & Profile Integrated) */}
+      {/* 2. GLOBAL COMMAND PALETTE */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onNavigateTab={(tab) => setActiveTab(tab)}
+        onOpenAddTx={() => setIsAddTxOpen(true)}
+        onOpenTransfer={() => setIsTransferOpen(true)}
+        onOpenAddAccount={() => setIsAddAccountOpen(true)}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        onOpenSupport={() => setIsContactOpen(true)}
+      />
+
+      {/* 3. SIDEBAR DRAWER */}
       <SidebarDrawer
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
@@ -410,7 +433,15 @@ export default function App() {
         onOpenSupport={() => setIsContactOpen(true)}
       />
 
-      {/* 3. MAIN WORKSPACE */}
+      {/* 4. SPEED DIAL FAB */}
+      <SpeedDialFAB
+        onOpenAddExpense={() => setIsAddTxOpen(true)}
+        onOpenAddIncome={() => setIsAddTxOpen(true)}
+        onOpenTransfer={() => setIsTransferOpen(true)}
+        onOpenAddVault={() => setIsAddAccountOpen(true)}
+      />
+
+      {/* 5. MAIN WORKSPACE */}
       <main className="flex-1 w-full overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8 print:p-0 print:m-0 print:overflow-visible">
         <div className="flex items-center justify-between mb-6 print:hidden">
           <div>
@@ -432,7 +463,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* Modules */}
+        {/* Modules: Compliance module is removed */}
         {activeTab === 'dashboard' && (
           <OverviewCards 
             onOpenTransfer={() => setIsTransferOpen(true)} 
@@ -459,10 +490,6 @@ export default function App() {
           <DebtsModule onDataChange={handleDataRefresh} />
         )}
 
-        {activeTab === 'reconcile' && (
-          <ComplianceModule onDataChange={handleDataRefresh} />
-        )}
-
         {activeTab === 'analytics' && (
           <AnalyticsModule />
         )}
@@ -472,14 +499,14 @@ export default function App() {
         )}
       </main>
 
-      {/* 4. MOBILE BOTTOM NAVIGATION */}
+      {/* 6. MOBILE BOTTOM NAVIGATION */}
       <BottomNav 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
         onOpenAddTx={() => setIsAddTxOpen(true)} 
       />
 
-      {/* 5. APPLICATION MODALS */}
+      {/* 7. MODALS */}
       <ProfileModal
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}

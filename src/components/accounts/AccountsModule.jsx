@@ -17,7 +17,9 @@ import {
   Layers, 
   ArrowUpRight, 
   ArrowDownLeft, 
-  FileSpreadsheet
+  FileSpreadsheet,
+  Activity,
+  CreditCard
 } from 'lucide-react';
 
 export default function AccountsModule({ 
@@ -28,11 +30,13 @@ export default function AccountsModule({
 }) {
   const { user } = useAuth();
   const [accounts, setAccounts] = useState([]);
+  const [accountTxMap, setAccountTxMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
 
-  // Prottek card-er jonno alada visibility state tracker
+  // Individual Card Visibility & Analytics View States
   const [visibleBalances, setVisibleBalances] = useState({});
+  const [cardAnalyticsView, setCardAnalyticsView] = useState({});
 
   // History & Edit Modals State
   const [selectedAccountForHistory, setSelectedAccountForHistory] = useState(null);
@@ -47,6 +51,7 @@ export default function AccountsModule({
 
   const prevAccountsJson = useRef('');
 
+  // 1. Fetch Accounts and recent transactions for sparkline calculation
   const fetchAccounts = async () => {
     if (!user?.id) return;
     try {
@@ -63,6 +68,22 @@ export default function AccountsModule({
           setAccounts(data);
         }
       }
+
+      // Fetch 30-day recent transactions to compute 7-day sparklines
+      const { data: txData } = await supabase
+        .from('transactions')
+        .select('account_id, type, amount, transaction_date')
+        .eq('user_id', user.id)
+        .order('transaction_date', { ascending: false });
+
+      if (txData) {
+        const grouped = {};
+        txData.forEach((tx) => {
+          if (!grouped[tx.account_id]) grouped[tx.account_id] = [];
+          grouped[tx.account_id].push(tx);
+        });
+        setAccountTxMap(grouped);
+      }
     } catch (err) {
       console.warn('Error fetching Supabase accounts:', err);
     } finally {
@@ -74,9 +95,15 @@ export default function AccountsModule({
     fetchAccounts();
   }, [user?.id, refreshTrigger]);
 
-  // Specific Card Balance Visibility Toggle
   const toggleCardVisibility = (id) => {
     setVisibleBalances((prev) => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
+
+  const toggleCardAnalytics = (id) => {
+    setCardAnalyticsView((prev) => ({
       ...prev,
       [id]: !prev[id]
     }));
@@ -168,6 +195,39 @@ export default function AccountsModule({
     } finally {
       setEditSubmitting(false);
     }
+  };
+
+  // 7-Day Sparkline Aggregator
+  const compute7DaySparkline = (accountId) => {
+    const txs = accountTxMap[accountId] || [];
+    const days = [];
+    const now = new Date();
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const dayLabel = d.toLocaleDateString('en-US', { weekday: 'narrow' });
+
+      let inflow = 0;
+      let outflow = 0;
+
+      txs.forEach((tx) => {
+        if (tx.transaction_date === dateStr) {
+          const amt = Number(tx.amount) || 0;
+          if (['income', 'transfer_in'].includes(tx.type)) inflow += amt;
+          if (['expense', 'transfer_out'].includes(tx.type)) outflow += amt;
+        }
+      });
+
+      days.push({ dateStr, dayLabel, inflow, outflow });
+    }
+
+    const maxVal = Math.max(...days.map((d) => Math.max(d.inflow, d.outflow)), 100);
+    const total7DayIn = days.reduce((a, b) => a + b.inflow, 0);
+    const total7DayOut = days.reduce((a, b) => a + b.outflow, 0);
+
+    return { days, maxVal, total7DayIn, total7DayOut };
   };
 
   const getCardTheme = (type = '', name = '') => {
@@ -280,7 +340,7 @@ export default function AccountsModule({
   return (
     <div className="space-y-6 select-none font-sans">
       
-      {/* 1. TOP SUMMARY BAR (Global Eye Button Removed) */}
+      {/* 1. TOP SUMMARY BAR */}
       <div className="rounded-3xl bg-white border border-[#F3D7D9] p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -329,7 +389,7 @@ export default function AccountsModule({
         </div>
       </div>
 
-      {/* 2. VISA CARDS GRID */}
+      {/* 2. VISA CARDS GRID WITH SPARKLINE ANALYTICS TOGGLE */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3].map((n) => (
@@ -364,17 +424,19 @@ export default function AccountsModule({
           {accounts.map((acc) => {
             const theme = getCardTheme(acc.account_type, acc.account_name);
             const balanceVal = Number(acc.balance || 0);
-            const isCardBalanceVisible = visibleBalances[acc.id] !== false; // Default-e visible thakbe
+            const isCardBalanceVisible = visibleBalances[acc.id] !== false;
+            const isAnalyticsFace = Boolean(cardAnalyticsView[acc.id]);
+            const spark = compute7DaySparkline(acc.id);
 
             return (
               <div key={acc.id} className="flex flex-col gap-2">
                 <div
-                  className={`relative w-full aspect-[1.586/1] min-h-[225px] rounded-3xl bg-gradient-to-br ${theme.bg} p-6 text-white shadow-xl shadow-slate-950/15 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between overflow-hidden border border-white/10`}
+                  className={`relative w-full aspect-[1.586/1] min-h-[225px] rounded-3xl bg-gradient-to-br ${theme.bg} p-6 text-white shadow-xl shadow-slate-950/15 hover:shadow-2xl transition-all duration-300 flex flex-col justify-between overflow-hidden border border-white/10`}
                 >
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-white/15 pointer-events-none" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-white/15 pointer-events-none" />
                   <div className="absolute -right-20 -top-20 w-52 h-52 bg-white/10 rounded-full blur-2xl pointer-events-none" />
 
-                  {/* Top Row: Brand & Actions */}
+                  {/* Header / Brand & Controls */}
                   <div className="relative z-10 flex items-center justify-between">
                     <div>
                       <h4 className="text-sm font-black tracking-wider uppercase text-white/95 leading-none">
@@ -386,9 +448,20 @@ export default function AccountsModule({
                     </div>
 
                     <div className="flex items-center gap-1.5">
-                      <span className="px-2 py-0.5 rounded-md bg-white/20 backdrop-blur-md text-[9px] font-black uppercase tracking-widest border border-white/20">
-                        {theme.typeBadge}
-                      </span>
+                      {/* Analytics Sparkline View Switcher */}
+                      <button
+                        type="button"
+                        onClick={() => toggleCardAnalytics(acc.id)}
+                        className={`p-1.5 rounded-lg transition cursor-pointer ${
+                          isAnalyticsFace 
+                            ? 'bg-white text-slate-900 shadow-md' 
+                            : 'bg-black/20 hover:bg-white/20 text-white/90'
+                        }`}
+                        title={isAnalyticsFace ? 'Switch to Card Face' : 'Switch to 7-Day Sparkline'}
+                      >
+                        {isAnalyticsFace ? <CreditCard className="w-3.5 h-3.5" /> : <Activity className="w-3.5 h-3.5" />}
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => handleOpenEdit(acc)}
@@ -408,91 +481,151 @@ export default function AccountsModule({
                     </div>
                   </div>
 
-                  {/* Middle Row: Gold Chip & Individual Balance with Eye Button */}
-                  <div className="relative z-10 flex items-center justify-between my-auto pt-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-11 h-8 rounded-lg bg-gradient-to-tr from-[#eab308] via-[#fef08a] to-[#ca8a04] p-1 shadow-md border border-amber-300/60 relative overflow-hidden flex items-center justify-center">
-                        <div className="w-full h-[1px] bg-amber-900/40 absolute" />
-                        <div className="h-full w-[1px] bg-amber-900/40 absolute" />
-                        <div className="w-4 h-3 rounded-xs border border-amber-900/50" />
-                      </div>
-                      <Wifi className="w-5 h-5 text-white/75 rotate-90" />
-                    </div>
+                  {/* Dynamic Face: Normal Card Face vs 7-Day Analytics Sparkline */}
+                  {!isAnalyticsFace ? (
+                    <>
+                      {/* Middle: Chip & Balance */}
+                      <div className="relative z-10 flex items-center justify-between my-auto pt-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-11 h-8 rounded-lg bg-gradient-to-tr from-[#eab308] via-[#fef08a] to-[#ca8a04] p-1 shadow-md border border-amber-300/60 relative overflow-hidden flex items-center justify-center">
+                            <div className="w-full h-[1px] bg-amber-900/40 absolute" />
+                            <div className="h-full w-[1px] bg-amber-900/40 absolute" />
+                            <div className="w-4 h-3 rounded-xs border border-amber-900/50" />
+                          </div>
+                          <Wifi className="w-5 h-5 text-white/75 rotate-90" />
+                        </div>
 
-                    <div className="text-right flex flex-col items-end">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <span className="text-[9px] font-black uppercase tracking-wider text-white/70 block leading-tight">
-                          Available Balance
+                        <div className="text-right flex flex-col items-end">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span className="text-[9px] font-black uppercase tracking-wider text-white/70 block leading-tight">
+                              Available Balance
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => toggleCardVisibility(acc.id)}
+                              className="p-1 rounded-md bg-white/10 hover:bg-white/25 text-white/80 hover:text-white transition cursor-pointer"
+                              title={isCardBalanceVisible ? "Hide Balance" : "Show Balance"}
+                            >
+                              {isCardBalanceVisible ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            </button>
+                          </div>
+                          <span className="text-xl sm:text-2xl font-black font-mono tracking-tight text-white drop-shadow-sm">
+                            {isCardBalanceVisible ? formatBDT(balanceVal, 'en') : '••••••••'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Number Row */}
+                      <div className="relative z-10">
+                        <div className="flex items-center justify-between">
+                          <p className="font-mono text-base sm:text-lg font-black tracking-[0.16em] text-white/95 drop-shadow-md truncate">
+                            {renderEmbossedCardNumber(acc.account_number, acc.account_type)}
+                          </p>
+                          {acc.account_number && (
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(acc.account_number, acc.id)}
+                              className="p-1.5 rounded-lg bg-black/20 hover:bg-black/40 text-white/80 hover:text-white transition cursor-pointer shrink-0 ml-2"
+                              title="Copy Account Number"
+                            >
+                              {copiedId === acc.id ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Cardholder & Brand Footer */}
+                      <div className="relative z-10 pt-2 border-t border-white/15 flex items-end justify-between">
+                        <div>
+                          <span className="text-[8px] font-black uppercase tracking-widest text-white/60 block">
+                            Cardholder / Label
+                          </span>
+                          <p className="text-xs font-black uppercase tracking-wider text-white truncate max-w-[170px]">
+                            {acc.account_name.includes(' - ') ? acc.account_name.split(' - ')[1] : acc.account_name}
+                          </p>
+                        </div>
+
+                        <div className="text-center px-2">
+                          <span className="text-[8px] font-black uppercase tracking-widest text-white/60 block">
+                            Valid Thru
+                          </span>
+                          <span className="text-[10px] font-mono font-bold text-white tracking-widest">
+                            10/30
+                          </span>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="text-xl sm:text-2xl font-black italic tracking-tighter text-white drop-shadow-sm font-serif">
+                            {theme.network}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    /* Interactive 7-Day Sparkline Face */
+                    <div className="relative z-10 my-auto py-2 flex flex-col justify-between h-full animate-in fade-in duration-200">
+                      
+                      <div className="flex items-center justify-between pt-1 pb-2 border-b border-white/10">
+                        <div>
+                          <span className="text-[8px] font-black uppercase tracking-widest text-emerald-300 block">
+                            7-Day Inflow
+                          </span>
+                          <span className="text-xs font-mono font-black text-white">
+                            +{formatBDT(spark.total7DayIn, 'en')}
+                          </span>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="text-[8px] font-black uppercase tracking-widest text-rose-300 block">
+                            7-Day Outflow
+                          </span>
+                          <span className="text-xs font-mono font-black text-white">
+                            -{formatBDT(spark.total7DayOut, 'en')}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Sparkline Bars */}
+                      <div className="flex items-end justify-between gap-2.5 h-20 pt-2 px-1">
+                        {spark.days.map((d, index) => {
+                          const inHeight = Math.max(Math.round((d.inflow / spark.maxVal) * 50), 4);
+                          const outHeight = Math.max(Math.round((d.outflow / spark.maxVal) * 50), 4);
+
+                          return (
+                            <div key={index} className="flex-1 flex flex-col items-center justify-end h-full group">
+                              <div className="w-full flex items-end justify-center gap-1 h-14">
+                                <div 
+                                  style={{ height: `${d.inflow > 0 ? inHeight : 3}px` }}
+                                  className={`w-1.5 rounded-t-sm transition-all ${d.inflow > 0 ? 'bg-emerald-400' : 'bg-white/10'}`}
+                                  title={`In: ৳${d.inflow}`}
+                                />
+                                <div 
+                                  style={{ height: `${d.outflow > 0 ? outHeight : 3}px` }}
+                                  className={`w-1.5 rounded-t-sm transition-all ${d.outflow > 0 ? 'bg-rose-400' : 'bg-white/10'}`}
+                                  title={`Out: ৳${d.outflow}`}
+                                />
+                              </div>
+                              <span className="text-[8px] font-mono font-bold text-white/70 uppercase mt-1">
+                                {d.dayLabel}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1.5 border-t border-white/10 text-[9px] font-bold text-white/75">
+                        <span className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-xs bg-emerald-400" /> In
+                          <span className="w-2 h-2 rounded-xs bg-rose-400 ml-2" /> Out
                         </span>
-                        {/* Individual Eye Toggle Button for this specific card */}
-                        <button
-                          type="button"
-                          onClick={() => toggleCardVisibility(acc.id)}
-                          className="p-1 rounded-md bg-white/10 hover:bg-white/25 text-white/80 hover:text-white transition cursor-pointer"
-                          title={isCardBalanceVisible ? "Hide Balance" : "Show Balance"}
-                        >
-                          {isCardBalanceVisible ? (
-                            <EyeOff className="w-3 h-3" />
-                          ) : (
-                            <Eye className="w-3 h-3" />
-                          )}
-                        </button>
+                        <span className="font-mono text-[8px] text-white/60">
+                          Real-time 7-day flow
+                        </span>
                       </div>
-                      <span className="text-xl sm:text-2xl font-black font-mono tracking-tight text-white drop-shadow-sm">
-                        {isCardBalanceVisible ? formatBDT(balanceVal, 'en') : '••••••••'}
-                      </span>
-                    </div>
-                  </div>
 
-                  {/* Embossed Card Number */}
-                  <div className="relative z-10">
-                    <div className="flex items-center justify-between">
-                      <p className="font-mono text-base sm:text-lg font-black tracking-[0.16em] text-white/95 drop-shadow-md truncate">
-                        {renderEmbossedCardNumber(acc.account_number, acc.account_type)}
-                      </p>
-                      {acc.account_number && (
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(acc.account_number, acc.id)}
-                          className="p-1.5 rounded-lg bg-black/20 hover:bg-black/40 text-white/80 hover:text-white transition cursor-pointer shrink-0 ml-2"
-                          title="Copy Account Number"
-                        >
-                          {copiedId === acc.id ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-300" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      )}
                     </div>
-                  </div>
+                  )}
 
-                  {/* Bottom Row: Cardholder & Network Badge */}
-                  <div className="relative z-10 pt-2 border-t border-white/15 flex items-end justify-between">
-                    <div>
-                      <span className="text-[8px] font-black uppercase tracking-widest text-white/60 block">
-                        Cardholder / Label
-                      </span>
-                      <p className="text-xs font-black uppercase tracking-wider text-white truncate max-w-[170px]">
-                        {acc.account_name.includes(' - ') ? acc.account_name.split(' - ')[1] : acc.account_name}
-                      </p>
-                    </div>
-
-                    <div className="text-center px-2">
-                      <span className="text-[8px] font-black uppercase tracking-widest text-white/60 block">
-                        Valid Thru
-                      </span>
-                      <span className="text-[10px] font-mono font-bold text-white tracking-widest">
-                        10/30
-                      </span>
-                    </div>
-
-                    <div className="text-right">
-                      <span className="text-xl sm:text-2xl font-black italic tracking-tighter text-white drop-shadow-sm font-serif">
-                        {theme.network}
-                      </span>
-                    </div>
-                  </div>
                 </div>
 
                 <button
